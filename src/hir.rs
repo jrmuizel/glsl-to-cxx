@@ -984,11 +984,14 @@ fn translate_condition(state: &mut State, c: &syntax::Condition) -> Condition {
     panic!()
 }
 
-fn translate_for_init(state: &mut State, c: &syntax::ForInitStatement) -> ForInitStatement {
-    panic!()
+fn translate_for_init(state: &mut State, s: &syntax::ForInitStatement) -> ForInitStatement {
+    match s {
+        syntax::ForInitStatement::Expression(e) => ForInitStatement::Expression(e.as_ref().map(|e| translate_expression(state, e))),
+        syntax::ForInitStatement::Declaration(d) => ForInitStatement::Declaration(Box::new(translate_declaration(state, d))),
+    }
 }
 
-fn translate_for_rest(state: &mut State, c: &syntax::ForRestStatement) -> ForRestStatement {
+fn translate_for_rest(state: &mut State, s: &syntax::ForRestStatement) -> ForRestStatement {
     panic!()
 }
 
