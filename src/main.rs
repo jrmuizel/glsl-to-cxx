@@ -8,7 +8,23 @@ mod hir;
 use hir::State;
 
 fn main() {
-  let r = TranslationUnit::parse("vec3 Contrast(vec3 Cs, float amount) {
+  let r = TranslationUnit::parse("
+// Interpolated UV coordinates to sample.
+in vec2 vUv;
+in vec2 vLocalPos;
+
+// X = layer index to sample, Y = flag to allow perspective interpolation of UV.
+flat in vec2 vLayerAndPerspective;
+flat in float vAmount;
+flat in int vOp;
+flat in mat3 vColorMat;
+flat in vec3 vColorOffset;
+flat in vec4 vUvClipBounds;
+flat in int vTableAddress;
+flat in int vFuncs[4];
+flat in vec4 vFloodColor;
+
+vec3 Contrast(vec3 Cs, float amount) {
     return Cs.rgb * amount - 0.5 * amount + 0.5;
 }
 
@@ -61,10 +77,10 @@ vec4 ComponentTransfer(vec4 colora) {
 
     for (int i = 0; i < 4; i++) {
         switch (vFuncs[i]) {
-            case COMPONENT_TRANSFER_IDENTITY:
+            case 0:
                 break;
-            case COMPONENT_TRANSFER_TABLE:
-            case COMPONENT_TRANSFER_DISCRETE: {
+            case 1:
+            case 2: {
                 // fetch value from lookup table
                 k = int(floor(colora[i]*255.0));
                 texel = fetch_from_gpu_cache_1(vTableAddress + offset + k/4);
@@ -73,7 +89,7 @@ vec4 ComponentTransfer(vec4 colora) {
                 offset = offset + 64;
                 break;
             }
-            case COMPONENT_TRANSFER_LINEAR: {
+            case 3: {
                 // fetch the two values for use in the linear equation
                 texel = fetch_from_gpu_cache_1(vTableAddress + offset);
                 colora[i] = clamp(texel[0] * colora[i] + texel[1], 0.0, 1.0);
@@ -81,7 +97,7 @@ vec4 ComponentTransfer(vec4 colora) {
                 offset = offset + 1;
                 break;
             }
-            case COMPONENT_TRANSFER_GAMMA: {
+            case 4: {
                 // fetch the three values for use in the gamma equation
                 texel = fetch_from_gpu_cache_1(vTableAddress + offset);
                 colora[i] = clamp(texel[0] * pow(colora[i], texel[1]) + texel[2], 0.0, 1.0);

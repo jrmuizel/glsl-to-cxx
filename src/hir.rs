@@ -55,10 +55,11 @@ pub struct SymRef(u32);
 
 #[derive(Debug)]
 struct Scope {
+    name: String,
     names: HashMap<String, SymRef>,
 }
 impl Scope {
-    fn new() -> Self {  Scope { names: HashMap::new() }}
+    fn new(name: String) -> Self {  Scope { name, names: HashMap::new() }}
 }
 
 #[derive(Debug)]
@@ -96,8 +97,8 @@ impl State {
         self.lookup(name).map(move |x| &mut self.syms[x.0 as usize])
     }
 
-    fn push_scope(&mut self) {
-        self.scopes.push(Scope::new());
+    fn push_scope(&mut self, name: String) {
+        self.scopes.push(Scope::new(name));
     }
     fn pop_scope(&mut self) {
         self.scopes.pop();
@@ -766,10 +767,12 @@ fn translate_initializater(state: &mut State, i: &syntax::Initializer) -> Initia
 }
 
 fn translate_single_declaration(state: &mut State, d: &syntax::SingleDeclaration) -> SingleDeclaration {
-    state.declare(d.name.as_ref().unwrap().as_str(), Type::FullySpecifiedType(d.ty.clone()));
+    let mut ty = d.ty.clone();
+    ty.ty.array_specifier = d.array_specifier.clone();
+    state.declare(d.name.as_ref().unwrap().as_str(), Type::FullySpecifiedType(ty.clone()));
     SingleDeclaration {
         name: d.name.clone(),
-        ty: d.ty.clone(),
+        ty,
         array_specifier: d.array_specifier.clone(),
         initializer: d.initializer.as_ref().map(|x| translate_initializater(state, x)),
     }
@@ -815,11 +818,14 @@ fn compatible_type(lhs: &Type, rhs: &Type) -> bool {
 }
 
 fn promoted_type(lhs: &Type, rhs: &Type) -> Type {
-    if lhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Double)) &&
-        rhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) {
-        Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Double))
-    } else if is_vector(&lhs) && (rhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) ||
-        rhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Double))) {
+    if lhs == &Type::new(TypeSpecifierNonArray::Double) &&
+        rhs == &Type::new(TypeSpecifierNonArray::Float) {
+        Type::new(TypeSpecifierNonArray::Double)
+    } else if lhs == &Type::new(TypeSpecifierNonArray::Float) &&
+        rhs == &Type::new(TypeSpecifierNonArray::Double) {
+        Type::new(TypeSpecifierNonArray::Double)
+    } else if is_vector(&lhs) && (rhs == &Type::new(TypeSpecifierNonArray::Float) ||
+        rhs == &Type::new(TypeSpecifierNonArray::Double)) {
         // scalars promote to vectors
         lhs.clone()
     } else {
@@ -831,7 +837,10 @@ fn promoted_type(lhs: &Type, rhs: &Type) -> Type {
 fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
     match e {
         syntax::Expr::Variable(i) => {
-            let sym = state.lookup(i.as_str()).unwrap();
+            let sym = match state.lookup(i.as_str()) {
+                Some(sym) => sym,
+                None => panic!("missing declaration {}", i.as_str())
+            };
             Expr { kind: ExprKind::Variable(sym), ty: state.sym(sym).ty.clone() }
         },
         syntax::Expr::Assignment(lhs, op, rhs) => {
@@ -958,8 +967,19 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
         }
         syntax::Expr::Bracket(e, specifier) =>{
             let e = Box::new(translate_expression(state, e));
-            let ty = e.ty.clone();
-            Expr { kind: ExprKind::Bracket(e, panic!()), ty }
+            let ty = if is_vector(&e.ty) {
+                Type::new(TypeSpecifierNonArray::Float)
+            } else {
+                match &e.ty {
+                    Type::FullySpecifiedType(f) => {
+                        assert!(f.ty.array_specifier.is_some());
+                        e.ty.clone()
+                    }
+                    _ => panic!("non vector array {:?} {:?}", state.sym(SymRef(17)), e)
+
+                }
+            };
+            Expr { kind: ExprKind::Bracket(e, specifier.clone()), ty }
         }
     }
 }
@@ -981,7 +1001,10 @@ fn translate_jump(state: &mut State, s: &syntax::JumpStatement) -> JumpStatement
 }
 
 fn translate_condition(state: &mut State, c: &syntax::Condition) -> Condition {
-    panic!()
+    match c {
+        syntax::Condition::Expr(e) => Condition::Expr(Box::new(translate_expression(state, e))),
+        _ => panic!()
+    }
 }
 
 fn translate_for_init(state: &mut State, s: &syntax::ForInitStatement) -> ForInitStatement {
@@ -992,7 +1015,10 @@ fn translate_for_init(state: &mut State, s: &syntax::ForInitStatement) -> ForIni
 }
 
 fn translate_for_rest(state: &mut State, s: &syntax::ForRestStatement) -> ForRestStatement {
-    panic!()
+    ForRestStatement {
+        condition: s.condition.as_ref().map(|c| translate_condition(state, c)),
+        post_expr: s.post_expr.as_ref().map(|e| Box::new(translate_expression(state, e)))
+    }
 }
 
 fn translate_iteration(state: &mut State, s: &syntax::IterationStatement) -> IterationStatement {
@@ -1006,10 +1032,17 @@ fn translate_iteration(state: &mut State, s: &syntax::IterationStatement) -> Ite
     }
 }
 
+fn translate_case(state: &mut State, c: &syntax::CaseLabel) -> CaseLabel {
+    match c {
+        syntax::CaseLabel::Def => CaseLabel::Def,
+        syntax::CaseLabel::Case(e) => CaseLabel::Case(Box::new(translate_expression(state, e)))
+    }
+}
+
 fn translate_simple_statement(state: &mut State, s: &syntax::SimpleStatement) -> SimpleStatement {
     match s {
         syntax::SimpleStatement::Declaration(d) => SimpleStatement::Declaration(translate_declaration(state, d)),
-        syntax::SimpleStatement::CaseLabel(c) => SimpleStatement::CaseLabel(panic!()),
+        syntax::SimpleStatement::CaseLabel(c) => SimpleStatement::CaseLabel(translate_case(state, c)),
         syntax::SimpleStatement::Expression(e) => SimpleStatement::Expression(e.as_ref().map(|e| translate_expression(state, e))),
         syntax::SimpleStatement::Iteration(i) => SimpleStatement::Iteration(translate_iteration(state, i)),
         syntax::SimpleStatement::Selection(s) => SimpleStatement::Selection(panic!()),
@@ -1069,7 +1102,7 @@ fn translate_prototype(state: &mut State, cs: &syntax::FunctionPrototype) -> Fun
 
 fn translate_function_definition(state: &mut State, fd: &syntax::FunctionDefinition) -> FunctionDefinition {
     //state.declare(fd.prototype.name.as_str(), panic!());
-    state.push_scope();
+    state.push_scope(fd.prototype.name.as_str().into());
     let f = FunctionDefinition {
         prototype: translate_prototype(state, &fd.prototype),
         statement: translate_compound_statement(state, &fd.statement)
@@ -1102,7 +1135,7 @@ fn declare_function(state: &mut State, name: &str, ret: Type, params: Vec<Type>)
 
 pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> TranslationUnit {
     // global scope
-    state.push_scope();
+    state.push_scope("global".into());
     use TypeSpecifierNonArray::*;
     declare_function(state, "vec3", Type::new(Vec3),
                  vec![Type::new(Float), Type::new(Float), Type::new(Float)]);
@@ -1122,6 +1155,10 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
                      vec![Type::new(Vec3), Type::new(Vec3)]);
     declare_function(state, "if_then_else", Type::new(Vec3),
                      vec![Type::new(BVec3), Type::new(Vec3), Type::new(Vec3)]);
+    declare_function(state, "floor", Type::new(Vec4),
+                     vec![Type::new(Vec4)]);
+    declare_function(state, "int", Type::new(Int),
+                     vec![Type::new(Float)]);
 
     /*state.declare("clamp", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
     state.declare("pow", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
