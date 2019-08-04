@@ -158,7 +158,7 @@ Fragment brush_fs() {
     }");
 
 */
-  println!("{:?}", r);
+  println!("{:#?}", r);
   let mut output = String::new();
 
   let mut state = hir::State::new();

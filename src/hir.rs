@@ -27,8 +27,14 @@ pub struct Symbol {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct FunctionSignature {
+    ret: Box<Type>,
+    params: Vec<Type>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionType {
-    ret: Box<Type>
+    signatures: NonEmpty<FunctionSignature>
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,6 +42,12 @@ pub enum Type {
     Function(FunctionType),
     Generic,
     FullySpecifiedType(FullySpecifiedType)
+}
+
+impl Type {
+    fn new(t: TypeSpecifierNonArray) -> Self {
+        Type::FullySpecifiedType(FullySpecifiedType::new(t))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Copy)]
@@ -79,6 +91,11 @@ impl State {
     pub fn sym(&self, sym: SymRef) -> &Symbol {
         &self.syms[sym.0 as usize]
     }
+
+    pub fn lookup_sym_mut(&mut self, name: &str) -> Option<&mut Symbol> {
+        self.lookup(name).map(move |x| &mut self.syms[x.0 as usize])
+    }
+
     fn push_scope(&mut self) {
         self.scopes.push(Scope::new());
     }
@@ -728,13 +745,18 @@ pub enum PreprocessorExtensionBehavior {
 
 trait NonEmptyExt<T> {
     fn map<U, F: FnMut(&mut State, &T) -> U>(&self, s: &mut State, f: F) -> NonEmpty<U>;
+    fn new(x: T) -> NonEmpty<T>;
 }
 
 impl<T> NonEmptyExt<T> for NonEmpty<T> {
     fn map<U, F: FnMut(&mut State, &T) -> U>(&self, s: &mut State, mut f: F) -> NonEmpty<U> {
         NonEmpty::from_iter(self.into_iter().map(|x| f(s, &x))).unwrap()
     }
+    fn new(x: T) -> NonEmpty<T> {
+        NonEmpty::from_iter(vec![x].into_iter()).unwrap()
+    }
 }
+
 
 fn translate_initializater(state: &mut State, i: &syntax::Initializer) -> Initializer {
     match i {
@@ -778,6 +800,18 @@ fn is_vector(ty: &Type) -> bool {
     ty == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Vec3)) ||
         ty == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Vec2)) ||
         ty == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Vec4))
+}
+
+fn compatible_type(lhs: &Type, rhs: &Type) -> bool {
+    if lhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Double)) &&
+        rhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) {
+        true
+    } else if rhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Double)) &&
+        lhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) {
+        true
+    } else {
+        lhs == rhs
+    }
 }
 
 fn promoted_type(lhs: &Type, rhs: &Type) -> Type {
@@ -836,6 +870,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
         },
         syntax::Expr::FunCall(fun, params) => {
             let ty: Type;
+            let params: Vec<Expr> = params.iter().map(|x| translate_expression(state, x)).collect();
             Expr {
                 kind:
                 ExprKind::FunCall(
@@ -845,15 +880,37 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                                 Some(s) => s,
                                 None => panic!("missing {}", i.as_str())
                             };
-                            ty = match &state.sym(sym).ty {
-                                Type::Function(f) => *f.ret.clone(),
-                                _ => panic!()
+                            let fn_ty = match &state.sym(sym).ty {
+                                Type::Function(f) => f,
+                                _ => panic!("can only call functions")
+                            };
+                            let mut ret = None;
+                            for sig in &fn_ty.signatures {
+                                let mut matching = true;
+                                for (e, p) in params.iter().zip(sig.params.iter()) {
+                                    if !compatible_type(&e.ty, p) {
+                                        matching = false;
+                                        break;
+                                    }
+                                }
+                                if matching {
+                                    ret = Some(sig.ret.clone());
+                                    break;
+                                }
+                            }
+                            ty = match ret {
+                                Some(t) => *t,
+                                None => {
+                                    dbg!(&fn_ty.signatures);
+                                    dbg!(params.iter().map(|p| &p.ty).collect::<Vec<_>>());
+                                    panic!("no matching func {}", i.as_str())
+                                }
                             };
                             FunIdentifier::Identifier(sym)
                         },
                         _ => panic!()
                     },
-                    params.iter().map(|x| translate_expression(state, x)).collect()
+                    params
                 ),
                 ty,
             }
@@ -1006,17 +1063,45 @@ fn translate_external_declaration(state: &mut State, ed: &syntax::ExternalDeclar
     }
 }
 
+fn declare_function(state: &mut State, name: &str, ret: Type, params: Vec<Type>) {
+    let sig = FunctionSignature{ ret: Box::new(ret), params };
+    match state.lookup_sym_mut(name) {
+        Some(Symbol { ty: Type::Function(f), ..}) => f.signatures.push(sig),
+        None => state.declare(name, Type::Function(FunctionType{ signatures: NonEmpty::new(sig)})),
+        _ => panic!("overloaded function name {}", name)
+    }
+    //state.declare(name, Type::Function(FunctionType{ v}))
+}
+
 
 pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> TranslationUnit {
     // global scope
     state.push_scope();
-    state.declare("vec3", Type::Function(FunctionType { ret: Box::new(Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Vec3)) )}));
-    state.declare("mix", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
-    state.declare("clamp", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
+    use TypeSpecifierNonArray::*;
+    declare_function(state, "vec3", Type::new(Vec3),
+                 vec![Type::new(Float), Type::new(Float), Type::new(Float)]);
+    declare_function(state, "vec3", Type::new(Vec3),
+                 vec![Type::new(Float)]);
+    declare_function(state, "mix", Type::new(Vec3),
+                 vec![Type::new(Vec3), Type::new(Vec3), Type::new(Vec3)]);
+    declare_function(state, "mix", Type::new(Vec3),
+                 vec![Type::new(Vec3), Type::new(Vec3), Type::new(Float)]);
+
+    declare_function(state, "clamp", Type::new(Vec3),
+                 vec![Type::new(Vec3), Type::new(Float), Type::new(Float)]);
+    declare_function(state, "clamp", Type::new(Vec3),
+                 vec![Type::new(Vec3), Type::new(Vec3), Type::new(Vec3)]);
+    declare_function(state, "pow", Type::new(Vec3), vec![Type::new(Vec3)]);
+    declare_function(state, "lessThanEqual", Type::new(BVec3),
+                     vec![Type::new(Vec3), Type::new(Vec3)]);
+    declare_function(state, "if_then_else", Type::new(Vec3),
+                     vec![Type::new(BVec3), Type::new(Vec3), Type::new(Vec3)]);
+
+    /*state.declare("clamp", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
     state.declare("pow", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
     state.declare("if_then_else", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
     state.declare("lessThanEqual", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
-
+*/
 
     TranslationUnit(tu.0.map(state, translate_external_declaration))
 }
