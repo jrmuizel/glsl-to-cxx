@@ -980,12 +980,35 @@ fn translate_jump(state: &mut State, s: &syntax::JumpStatement) -> JumpStatement
     }
 }
 
+fn translate_condition(state: &mut State, c: &syntax::Condition) -> Condition {
+    panic!()
+}
+
+fn translate_for_init(state: &mut State, c: &syntax::ForInitStatement) -> ForInitStatement {
+    panic!()
+}
+
+fn translate_for_rest(state: &mut State, c: &syntax::ForRestStatement) -> ForRestStatement {
+    panic!()
+}
+
+fn translate_iteration(state: &mut State, s: &syntax::IterationStatement) -> IterationStatement {
+    match s {
+        syntax::IterationStatement::While(cond, s) =>
+            IterationStatement::While(translate_condition(state, cond), Box::new(translate_statement(state, s))),
+        syntax::IterationStatement::For(init, rest, s) =>
+            IterationStatement::For(translate_for_init(state, init),translate_for_rest(state, rest), Box::new(translate_statement(state, s))),
+        syntax::IterationStatement::DoWhile(s, e) =>
+            IterationStatement::DoWhile(Box::new(translate_statement(state, s)), Box::new(translate_expression(state, e))),
+    }
+}
+
 fn translate_simple_statement(state: &mut State, s: &syntax::SimpleStatement) -> SimpleStatement {
     match s {
         syntax::SimpleStatement::Declaration(d) => SimpleStatement::Declaration(translate_declaration(state, d)),
         syntax::SimpleStatement::CaseLabel(c) => SimpleStatement::CaseLabel(panic!()),
         syntax::SimpleStatement::Expression(e) => SimpleStatement::Expression(e.as_ref().map(|e| translate_expression(state, e))),
-        syntax::SimpleStatement::Iteration(i) => SimpleStatement::Iteration(panic!()),
+        syntax::SimpleStatement::Iteration(i) => SimpleStatement::Iteration(translate_iteration(state, i)),
         syntax::SimpleStatement::Selection(s) => SimpleStatement::Selection(panic!()),
         syntax::SimpleStatement::Jump(j) => SimpleStatement::Jump(translate_jump(state, j)),
         syntax::SimpleStatement::Switch(s) => SimpleStatement::Switch(translate_switch(state, s))
