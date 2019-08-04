@@ -8,13 +8,156 @@ mod hir;
 use hir::State;
 
 fn main() {
-  let r = TranslationUnit::parse("
-    void main() {
+  let r = TranslationUnit::parse("vec3 Contrast(vec3 Cs, float amount) {
+    return Cs.rgb * amount - 0.5 * amount + 0.5;
+}
+
+vec3 Invert(vec3 Cs, float amount) {
+    return mix(Cs.rgb, vec3(1.0) - Cs.rgb, amount);
+}
+
+vec3 Brightness(vec3 Cs, float amount) {
+    // Apply the brightness factor.
+    // Resulting color needs to be clamped to output range
+    // since we are pre-multiplying alpha in the shader.
+    return clamp(Cs.rgb * amount, vec3(0.0), vec3(1.0));
+}
+
+// Based on the Gecko's implementation in
+// https://hg.mozilla.org/mozilla-central/file/91b4c3687d75/gfx/src/FilterSupport.cpp#l24
+// These could be made faster by sampling a lookup table stored in a float texture
+// with linear interpolation.
+
+vec3 SrgbToLinear(vec3 color) {
+    vec3 c1 = color / 12.92;
+    vec3 c2 = pow(color / 1.055 + vec3(0.055 / 1.055), vec3(2.4));
+    return if_then_else(lessThanEqual(color, vec3(0.04045)), c1, c2);
+}
+
+vec3 LinearToSrgb(vec3 color) {
+    vec3 c1 = color * 12.92;
+    vec3 c2 = vec3(1.055) * pow(color, vec3(1.0 / 2.4)) - vec3(0.055);
+    return if_then_else(lessThanEqual(color, vec3(0.0031308)), c1, c2);
+}
+
+// This function has to be factored out due to the following issue:
+// https://github.com/servo/webrender/wiki/Driver-issues#bug-1532245---switch-statement-inside-control-flow-inside-switch-statement-fails-to-compile-on-some-android-phones
+// (and now the words \"default: default:\" so angle_shader_validation.rs passes)
+vec4 ComponentTransfer(vec4 colora) {
+    // We push a different amount of data to the gpu cache depending on the
+    // function type.
+    // Identity => 0 blocks
+    // Table/Discrete => 64 blocks (256 values)
+    // Linear => 1 block (2 values)
+    // Gamma => 1 block (3 values)
+    // We loop through the color components and increment the offset (for the
+    // next color component) into the gpu cache based on how many blocks that
+    // function type put into the gpu cache.
+    // Table/Discrete use a 256 entry look up table.
+    // Linear/Gamma are a simple calculation.
+    int offset = 0;
+    vec4 texel;
+    int k;
+
+    for (int i = 0; i < 4; i++) {
+        switch (vFuncs[i]) {
+            case COMPONENT_TRANSFER_IDENTITY:
+                break;
+            case COMPONENT_TRANSFER_TABLE:
+            case COMPONENT_TRANSFER_DISCRETE: {
+                // fetch value from lookup table
+                k = int(floor(colora[i]*255.0));
+                texel = fetch_from_gpu_cache_1(vTableAddress + offset + k/4);
+                colora[i] = clamp(texel[k % 4], 0.0, 1.0);
+                // offset plus 256/4 blocks
+                offset = offset + 64;
+                break;
+            }
+            case COMPONENT_TRANSFER_LINEAR: {
+                // fetch the two values for use in the linear equation
+                texel = fetch_from_gpu_cache_1(vTableAddress + offset);
+                colora[i] = clamp(texel[0] * colora[i] + texel[1], 0.0, 1.0);
+                // offset plus 1 block
+                offset = offset + 1;
+                break;
+            }
+            case COMPONENT_TRANSFER_GAMMA: {
+                // fetch the three values for use in the gamma equation
+                texel = fetch_from_gpu_cache_1(vTableAddress + offset);
+                colora[i] = clamp(texel[0] * pow(colora[i], texel[1]) + texel[2], 0.0, 1.0);
+                // offset plus 1 block
+                offset = offset + 1;
+                break;
+            }
+            default:
+                // shouldn't happen
+                break;
+        }
+    }
+    return colora;
+}
+
+Fragment brush_fs() {
+    float perspective_divisor = mix(gl_FragCoord.w, 1.0, vLayerAndPerspective.y);
+    vec2 uv = vUv * perspective_divisor;
+    vec4 Cs = texture(sColor0, vec3(uv, vLayerAndPerspective.x));
+
+    // Un-premultiply the input.
+    float alpha = Cs.a;
+    vec3 color = alpha != 0.0 ? Cs.rgb / alpha : Cs.rgb;
+
+    switch (vOp) {
+        case 0:
+            break;
+        case 1:
+            color = Contrast(color, vAmount);
+            break;
+        case 4:
+            color = Invert(color, vAmount);
+            break;
+        case 7:
+            color = Brightness(color, vAmount);
+            break;
+        case 8: // Opacity
+            alpha *= vAmount;
+            break;
+        case 11:
+            color = SrgbToLinear(color);
+            break;
+        case 12:
+            color = LinearToSrgb(color);
+            break;
+        case 13: {
+            // Component Transfer
+            vec4 colora = alpha != 0.0 ? Cs / alpha : Cs;
+            colora = ComponentTransfer(colora);
+            color = colora.rgb;
+            alpha = colora.a;
+            break;
+        }
+        case 14: // Flood
+            color = vFloodColor.rgb;
+            alpha = vFloodColor.a;
+            break;
+        default:
+            color = vColorMat * color + vColorOffset;
+    }
+
+    // Fail-safe to ensure that we don't sample outside the rendered
+    // portion of a blend source.
+    alpha *= min(point_inside_rect(uv, vUvClipBounds.xy, vUvClipBounds.zw),
+                 init_transform_fs(vLocalPos));
+
+    // Pre-multiply the alpha into the output value.
+    return Fragment(alpha * vec4(color, 1.0));
+}");
+
+    /*void main() {
       vec3 p = vec3(0, 1, 4);
       float x = 1. * .5 + p.r;
     }");
 
-
+*/
   println!("{:?}", r);
   let mut output = String::new();
 

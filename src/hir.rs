@@ -18,6 +18,7 @@ use glsl::syntax::AssignmentOp;
 use glsl::syntax::Identifier;
 use crate::hir::Type::Function;
 use crate::hir::Initializer::Simple;
+use crate::hir::SimpleStatement::Jump;
 
 #[derive(Debug)]
 pub struct Symbol {
@@ -33,7 +34,6 @@ pub struct FunctionType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Function(FunctionType),
-    Parameter,
     FullySpecifiedType(FullySpecifiedType)
 }
 
@@ -783,6 +783,10 @@ fn promoted_type(lhs: &Type, rhs: &Type) -> Type {
     if lhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Double)) &&
         rhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) {
         Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Double))
+    } else if is_vector(&lhs) && (rhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) ||
+        rhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Double))) {
+        // scalars promote to vectors
+        lhs.clone()
     } else {
         assert_eq!(lhs, rhs);
         lhs.clone()
@@ -896,6 +900,22 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
     }
 }
 
+fn translate_switch(state: &mut State, s: &syntax::SwitchStatement) -> SwitchStatement {
+    SwitchStatement {
+        head: Box::new(translate_expression(state, &s.head)),
+        body: s.body.iter().map(|x| translate_statement(state, x)).collect()
+    }
+}
+
+fn translate_jump(state: &mut State, s: &syntax::JumpStatement) -> JumpStatement {
+    match s {
+        syntax::JumpStatement::Break => JumpStatement::Break,
+        syntax::JumpStatement::Continue => JumpStatement::Continue,
+        syntax::JumpStatement::Discard => JumpStatement::Discard,
+        syntax::JumpStatement::Return(e) => JumpStatement::Return(Box::new(translate_expression(state, e)))
+    }
+}
+
 fn translate_simple_statement(state: &mut State, s: &syntax::SimpleStatement) -> SimpleStatement {
     match s {
         syntax::SimpleStatement::Declaration(d) => SimpleStatement::Declaration(translate_declaration(state, d)),
@@ -903,8 +923,8 @@ fn translate_simple_statement(state: &mut State, s: &syntax::SimpleStatement) ->
         syntax::SimpleStatement::Expression(e) => SimpleStatement::Expression(e.as_ref().map(|e| translate_expression(state, e))),
         syntax::SimpleStatement::Iteration(i) => SimpleStatement::Iteration(panic!()),
         syntax::SimpleStatement::Selection(s) => SimpleStatement::Selection(panic!()),
-        syntax::SimpleStatement::Jump(j) => SimpleStatement::Jump(panic!()),
-        syntax::SimpleStatement::Switch(s) => SimpleStatement::Switch(panic!())
+        syntax::SimpleStatement::Jump(j) => SimpleStatement::Jump(translate_jump(state, j)),
+        syntax::SimpleStatement::Switch(s) => SimpleStatement::Switch(translate_switch(state, s))
     }
 }
 
@@ -920,13 +940,27 @@ fn translate_compound_statement(state: &mut State, cs: &syntax::CompoundStatemen
     CompoundStatement { statement_list: cs.statement_list.iter().map(|x| translate_statement(state, x)).collect() }
 }
 
+fn translate_function_parameter_declarator(state: &mut State, d: &syntax::FunctionParameterDeclarator) -> FunctionParameterDeclarator {
+    FunctionParameterDeclarator {
+        ty: d.ty.clone(),
+        ident: d.ident.clone(),
+    }
+}
+
 fn translate_function_parameter_declaration(state: &mut State, p: &syntax::FunctionParameterDeclaration) ->
   FunctionParameterDeclaration
 {
     match p {
         syntax::FunctionParameterDeclaration::Named(qual, p) => {
-            state.declare(p.ident.ident.as_str(), panic!());
-            FunctionParameterDeclaration::Named(qual.clone(), panic!())
+            state.declare(p.ident.ident.as_str(), Type::FullySpecifiedType(
+                FullySpecifiedType {
+                    qualifier: None,
+                    ty: TypeSpecifier {
+                        ty: p.ty.ty.clone(),
+                        array_specifier: None
+                    }
+                }));
+            FunctionParameterDeclaration::Named(qual.clone(), translate_function_parameter_declarator(state, p))
         }
         syntax::FunctionParameterDeclaration::Unnamed(qual, p) => {
             FunctionParameterDeclaration::Unnamed(qual.clone(), p.clone())
