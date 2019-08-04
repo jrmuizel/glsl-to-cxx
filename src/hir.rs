@@ -28,12 +28,13 @@ pub struct Symbol {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionType {
-    ret: FullySpecifiedType
+    ret: Box<Type>
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Function(FunctionType),
+    Generic,
     FullySpecifiedType(FullySpecifiedType)
 }
 
@@ -840,8 +841,14 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                 ExprKind::FunCall(
                     match fun {
                         syntax::FunIdentifier::Identifier(i) => {
-                            let sym = state.lookup(i.as_str()).unwrap();
-                            ty = state.sym(sym).ty.clone();
+                            let sym = match state.lookup(i.as_str()) {
+                                Some(s) => s,
+                                None => panic!("missing {}", i.as_str())
+                            };
+                            ty = match &state.sym(sym).ty {
+                                Type::Function(f) => *f.ret.clone(),
+                                _ => panic!()
+                            };
                             FunIdentifier::Identifier(sym)
                         },
                         _ => panic!()
@@ -1003,6 +1010,13 @@ fn translate_external_declaration(state: &mut State, ed: &syntax::ExternalDeclar
 pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> TranslationUnit {
     // global scope
     state.push_scope();
-    state.declare("vec3", Type::Function(FunctionType { ret: FullySpecifiedType::new(TypeSpecifierNonArray::Vec3) }));
+    state.declare("vec3", Type::Function(FunctionType { ret: Box::new(Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Vec3)) )}));
+    state.declare("mix", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
+    state.declare("clamp", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
+    state.declare("pow", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
+    state.declare("if_then_else", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
+    state.declare("lessThanEqual", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
+
+
     TranslationUnit(tu.0.map(state, translate_external_declaration))
 }
