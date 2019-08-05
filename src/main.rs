@@ -1076,8 +1076,13 @@ pub fn show_switch_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::S
   let _ = f.write_str(") {\n");
   state.indent += 1;
 
-  for st in &sst.body {
-    show_statement(f, state, st);
+  for case in &sst.cases {
+    show_case_label(f, state, &case.label);
+    state.indent += 1;
+    for st in &case.stmts {
+      show_statement(f, state, st);
+    }
+    state.indent -= 1;
   }
   state.indent -= 1;
   show_indent(f, state);

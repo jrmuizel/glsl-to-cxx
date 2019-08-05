@@ -561,24 +561,6 @@ impl SimpleStatement {
         )
     }
 
-    /// Create a new switch statement.
-    ///
-    /// A switch statement is always composed of a [`SimpleStatement::Switch`] block, that contains it
-    /// all, and has as body a compound list of case statements.
-    pub fn new_switch<H, B>(
-        head: H,
-        body: B
-    ) -> Self
-        where H: Into<Expr>,
-              B: IntoIterator<Item = Statement> {
-        SimpleStatement::Switch(
-            SwitchStatement {
-                head: Box::new(head.into()),
-                body: body.into_iter().collect()
-            }
-        )
-    }
-
     /// Create a new while statement.
     pub fn new_while<C, S>(
         cond: C,
@@ -640,7 +622,7 @@ pub enum SelectionRestStatement {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SwitchStatement {
     pub head: Box<Expr>,
-    pub body: Vec<Statement>
+    pub cases: Vec<Case>
 }
 
 /// Case label statement.
@@ -648,6 +630,13 @@ pub struct SwitchStatement {
 pub enum CaseLabel {
     Case(Box<Expr>),
     Def
+}
+
+/// An individual case
+#[derive(Clone, Debug, PartialEq)]
+pub struct Case {
+    pub label: CaseLabel,
+    pub stmts: Vec<Statement>
 }
 
 /// Iteration statement.
@@ -1034,9 +1023,40 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
 }
 
 fn translate_switch(state: &mut State, s: &syntax::SwitchStatement) -> SwitchStatement {
+    let mut cases = Vec::new();
+
+    let mut case = None;
+    for stmt in &s.body {
+        match stmt {
+            syntax::Statement::Simple(s) => {
+                match &**s {
+                    syntax::SimpleStatement::CaseLabel(label) => {
+                        match case.take() {
+                            Some(case) => cases.push(case),
+                            _ => {}
+                        }
+                        case = Some(Case { label: translate_case(state, &label), stmts: Vec::new() })
+                    }
+                    _ => {
+                        match case {
+                            Some(ref mut case) => case.stmts.push(translate_statement(state, stmt)),
+                            _ => panic!("switch must start with case")
+                        }
+                    }
+                }
+            }
+            _ => {
+                match case {
+                    Some(ref mut case) => case.stmts.push(translate_statement(state, stmt)),
+                    _ => panic!("switch must start with case")
+                }
+            }
+        }
+
+    }
     SwitchStatement {
         head: Box::new(translate_expression(state, &s.head)),
-        body: s.body.iter().map(|x| translate_statement(state, x)).collect()
+        cases
     }
 }
 
