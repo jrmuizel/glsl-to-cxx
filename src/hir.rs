@@ -44,7 +44,7 @@ pub enum Type {
 }
 
 impl Type {
-    fn new(t: TypeSpecifierNonArray) -> Self {
+    fn var(t: TypeSpecifierNonArray) -> Self {
         Type::Variable(FullySpecifiedType::new(t))
     }
 }
@@ -830,18 +830,18 @@ fn compatible_type(lhs: &Type, rhs: &Type) -> bool {
 }
 
 fn promoted_type(lhs: &Type, rhs: &Type) -> Type {
-    if lhs == &Type::new(TypeSpecifierNonArray::Double) &&
-        rhs == &Type::new(TypeSpecifierNonArray::Float) {
-        Type::new(TypeSpecifierNonArray::Double)
-    } else if lhs == &Type::new(TypeSpecifierNonArray::Float) &&
-        rhs == &Type::new(TypeSpecifierNonArray::Double) {
-        Type::new(TypeSpecifierNonArray::Double)
-    } else if is_vector(&lhs) && (rhs == &Type::new(TypeSpecifierNonArray::Float) ||
-        rhs == &Type::new(TypeSpecifierNonArray::Double)) {
+    if lhs == &Type::var(TypeSpecifierNonArray::Double) &&
+        rhs == &Type::var(TypeSpecifierNonArray::Float) {
+        Type::var(TypeSpecifierNonArray::Double)
+    } else if lhs == &Type::var(TypeSpecifierNonArray::Float) &&
+        rhs == &Type::var(TypeSpecifierNonArray::Double) {
+        Type::var(TypeSpecifierNonArray::Double)
+    } else if is_vector(&lhs) && (rhs == &Type::var(TypeSpecifierNonArray::Float) ||
+        rhs == &Type::var(TypeSpecifierNonArray::Double)) {
         // scalars promote to vectors
         lhs.clone()
-    } else if is_vector(&rhs) && (lhs == &Type::new(TypeSpecifierNonArray::Float) ||
-        lhs == &Type::new(TypeSpecifierNonArray::Double)) {
+    } else if is_vector(&rhs) && (lhs == &Type::var(TypeSpecifierNonArray::Float) ||
+        lhs == &Type::var(TypeSpecifierNonArray::Double)) {
         // scalars promote to vectors
         rhs.clone()
     } else {
@@ -1004,7 +1004,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
         syntax::Expr::Bracket(e, specifier) =>{
             let e = Box::new(translate_expression(state, e));
             let ty = if is_vector(&e.ty) {
-                Type::new(TypeSpecifierNonArray::Float)
+                Type::var(TypeSpecifierNonArray::Float)
             } else {
                 match &e.ty {
                     Type::Variable(f) => {
@@ -1155,8 +1155,8 @@ fn translate_prototype(state: &mut State, cs: &syntax::FunctionPrototype) -> Fun
 fn translate_function_definition(state: &mut State, fd: &syntax::FunctionDefinition) -> FunctionDefinition {
     let prototype = translate_prototype(state, &fd.prototype);
     let params = prototype.parameters.iter().map(|p| match p {
-        FunctionParameterDeclaration::Named(_, p) => Type::new(p.ty.ty.clone()),
-        FunctionParameterDeclaration::Unnamed(_, p) => Type::new(p.ty.clone()),
+        FunctionParameterDeclaration::Named(_, p) => Type::var(p.ty.ty.clone()),
+        FunctionParameterDeclaration::Unnamed(_, p) => Type::var(p.ty.clone()),
     }).collect();
     let sig = FunctionSignature{ ret: Box::new(Type::Variable(prototype.ty.clone())), params };
     state.declare(fd.prototype.name.as_str(), Type::Function(FunctionType{ signatures: NonEmpty::new(sig)}));
@@ -1195,64 +1195,64 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
     // global scope
     state.push_scope("global".into());
     use TypeSpecifierNonArray::*;
-    declare_function(state, "vec3", Type::new(Vec3),
-                 vec![Type::new(Float), Type::new(Float), Type::new(Float)]);
-    declare_function(state, "vec3", Type::new(Vec3),
-                 vec![Type::new(Float)]);
-    declare_function(state, "vec3", Type::new(Vec3),
-                     vec![Type::new(Vec2), Type::new(Float)]);
-    declare_function(state, "vec4", Type::new(Vec4),
-                     vec![Type::new(Vec3), Type::new(Float)]);
-    declare_function(state, "vec2", Type::new(Vec2),
-                     vec![Type::new(Float)]);
-    declare_function(state, "mix", Type::new(Vec3),
-                 vec![Type::new(Vec3), Type::new(Vec3), Type::new(Vec3)]);
-    declare_function(state, "mix", Type::new(Vec3),
-                 vec![Type::new(Vec3), Type::new(Vec3), Type::new(Float)]);
-    declare_function(state, "mix", Type::new(Float),
-                     vec![Type::new(Float), Type::new(Float), Type::new(Float)]);
-    declare_function(state, "step", Type::new(Vec2),
-                     vec![Type::new(Vec2), Type::new(Vec2)]);
-    declare_function(state, "max", Type::new(Vec2),
-                     vec![Type::new(Vec2), Type::new(Vec2)]);
-    declare_function(state, "max", Type::new(Float),
-                     vec![Type::new(Float), Type::new(Float)]);
-    declare_function(state, "min", Type::new(Float),
-                     vec![Type::new(Float), Type::new(Float)]);
-    declare_function(state, "fwidth", Type::new(Vec2),
-                     vec![Type::new(Vec2)]);
-    declare_function(state, "clamp", Type::new(Vec3),
-                 vec![Type::new(Vec3), Type::new(Float), Type::new(Float)]);
-    declare_function(state, "clamp", Type::new(Double),
-                     vec![Type::new(Double), Type::new(Double), Type::new(Double)]);
-    declare_function(state, "clamp", Type::new(Vec3),
-                 vec![Type::new(Vec3), Type::new(Vec3), Type::new(Vec3)]);
-    declare_function(state, "length", Type::new(Float), vec![Type::new(Vec2)]);
-    declare_function(state, "pow", Type::new(Vec3), vec![Type::new(Vec3)]);
-    declare_function(state, "pow", Type::new(Float), vec![Type::new(Float)]);
-    declare_function(state, "lessThanEqual", Type::new(BVec3),
-                     vec![Type::new(Vec3), Type::new(Vec3)]);
-    declare_function(state, "if_then_else", Type::new(Vec3),
-                     vec![Type::new(BVec3), Type::new(Vec3), Type::new(Vec3)]);
-    declare_function(state, "floor", Type::new(Vec4),
-                     vec![Type::new(Vec4)]);
-    declare_function(state, "floor", Type::new(Double),
-                     vec![Type::new(Double)]);
-    declare_function(state, "int", Type::new(Int),
-                     vec![Type::new(Float)]);
-    declare_function(state, "uint", Type::new(UInt),
-                     vec![Type::new(Float)]);
-    declare_function(state, "uint", Type::new(UInt),
-                     vec![Type::new(Int)]);
-    declare_function(state, "ivec2", Type::new(IVec2),
-                     vec![Type::new(UInt), Type::new(UInt)]);
-    declare_function(state, "ivec2", Type::new(IVec2),
-                     vec![Type::new(UInt), Type::new(UInt)]);
-    declare_function(state, "texelFetch", Type::new(Vec4),
-                     vec![Type::new(Sampler2D), Type::new(IVec2), Type::new(Int)]);
-    declare_function(state, "texture", Type::new(Vec4),
-                     vec![Type::new(Sampler2D), Type::new(Vec3)]);
-    state.declare("gl_FragCoord", Type::new(Vec4));
+    declare_function(state, "vec3", Type::var(Vec3),
+                     vec![Type::var(Float), Type::var(Float), Type::var(Float)]);
+    declare_function(state, "vec3", Type::var(Vec3),
+                     vec![Type::var(Float)]);
+    declare_function(state, "vec3", Type::var(Vec3),
+                     vec![Type::var(Vec2), Type::var(Float)]);
+    declare_function(state, "vec4", Type::var(Vec4),
+                     vec![Type::var(Vec3), Type::var(Float)]);
+    declare_function(state, "vec2", Type::var(Vec2),
+                     vec![Type::var(Float)]);
+    declare_function(state, "mix", Type::var(Vec3),
+                     vec![Type::var(Vec3), Type::var(Vec3), Type::var(Vec3)]);
+    declare_function(state, "mix", Type::var(Vec3),
+                     vec![Type::var(Vec3), Type::var(Vec3), Type::var(Float)]);
+    declare_function(state, "mix", Type::var(Float),
+                     vec![Type::var(Float), Type::var(Float), Type::var(Float)]);
+    declare_function(state, "step", Type::var(Vec2),
+                     vec![Type::var(Vec2), Type::var(Vec2)]);
+    declare_function(state, "max", Type::var(Vec2),
+                     vec![Type::var(Vec2), Type::var(Vec2)]);
+    declare_function(state, "max", Type::var(Float),
+                     vec![Type::var(Float), Type::var(Float)]);
+    declare_function(state, "min", Type::var(Float),
+                     vec![Type::var(Float), Type::var(Float)]);
+    declare_function(state, "fwidth", Type::var(Vec2),
+                     vec![Type::var(Vec2)]);
+    declare_function(state, "clamp", Type::var(Vec3),
+                     vec![Type::var(Vec3), Type::var(Float), Type::var(Float)]);
+    declare_function(state, "clamp", Type::var(Double),
+                     vec![Type::var(Double), Type::var(Double), Type::var(Double)]);
+    declare_function(state, "clamp", Type::var(Vec3),
+                     vec![Type::var(Vec3), Type::var(Vec3), Type::var(Vec3)]);
+    declare_function(state, "length", Type::var(Float), vec![Type::var(Vec2)]);
+    declare_function(state, "pow", Type::var(Vec3), vec![Type::var(Vec3)]);
+    declare_function(state, "pow", Type::var(Float), vec![Type::var(Float)]);
+    declare_function(state, "lessThanEqual", Type::var(BVec3),
+                     vec![Type::var(Vec3), Type::var(Vec3)]);
+    declare_function(state, "if_then_else", Type::var(Vec3),
+                     vec![Type::var(BVec3), Type::var(Vec3), Type::var(Vec3)]);
+    declare_function(state, "floor", Type::var(Vec4),
+                     vec![Type::var(Vec4)]);
+    declare_function(state, "floor", Type::var(Double),
+                     vec![Type::var(Double)]);
+    declare_function(state, "int", Type::var(Int),
+                     vec![Type::var(Float)]);
+    declare_function(state, "uint", Type::var(UInt),
+                     vec![Type::var(Float)]);
+    declare_function(state, "uint", Type::var(UInt),
+                     vec![Type::var(Int)]);
+    declare_function(state, "ivec2", Type::var(IVec2),
+                     vec![Type::var(UInt), Type::var(UInt)]);
+    declare_function(state, "ivec2", Type::var(IVec2),
+                     vec![Type::var(UInt), Type::var(UInt)]);
+    declare_function(state, "texelFetch", Type::var(Vec4),
+                     vec![Type::var(Sampler2D), Type::var(IVec2), Type::var(Int)]);
+    declare_function(state, "texture", Type::var(Vec4),
+                     vec![Type::var(Sampler2D), Type::var(Vec3)]);
+    state.declare("gl_FragCoord", Type::var(Vec4));
 
 
     /*state.declare("clamp", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
