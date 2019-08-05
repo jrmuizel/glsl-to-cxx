@@ -10,7 +10,72 @@ use hir::State;
 fn main() {
   let r = TranslationUnit::parse("
 
+struct Fragment {
+    vec4 color;
+};
+
+uniform sampler2D sColor0;
+uniform sampler2D sColor1;
+uniform sampler2D sColor2;
 uniform sampler2D sGpuCache;
+
+flat in vec4 vTransformBounds;
+
+float point_inside_rect(vec2 p, vec2 p0, vec2 p1) {
+    vec2 s = step(p0, p) - step(p1, p);
+    return s.x * s.y;
+}
+
+float signed_distance_rect(vec2 pos, vec2 p0, vec2 p1) {
+    vec2 d = max(p0 - pos, pos - p1);
+    return length(max(vec2(0.0), d)) + min(0.0, max(d.x, d.y));
+}
+
+    /// Find the appropriate half range to apply the AA approximation over.
+    /// This range represents a coefficient to go from one CSS pixel to half a device pixel.
+    float compute_aa_range(vec2 position) {
+        // The constant factor is chosen to compensate for the fact that length(fw) is equal
+        // to sqrt(2) times the device pixel ratio in the typical case. 0.5/sqrt(2) = 0.35355.
+        //
+        // This coefficient is chosen to ensure that any sample 0.5 pixels or more inside of
+        // the shape has no anti-aliasing applied to it (since pixels are sampled at their center,
+        // such a pixel (axis aligned) is fully inside the border). We need this so that antialiased
+        // curves properly connect with non-antialiased vertical or horizontal lines, among other things.
+        //
+        // Lines over a half-pixel away from the pixel center *can* intersect with the pixel square;
+        // indeed, unless they are horizontal or vertical, they are guaranteed to. However, choosing
+        // a nonzero area for such pixels causes noticeable artifacts at the junction between an anti-
+        // aliased corner and a straight edge.
+        //
+        // We may want to adjust this constant in specific scenarios (for example keep the principled
+        // value for straight edges where we want pixel-perfect equivalence with non antialiased lines
+        // when axis aligned, while selecting a larger and smoother aa range on curves).
+        return 0.35355 * length(fwidth(position));
+    }
+
+    float distance_aa(float aa_range, float signed_distance) {
+        float dist = 0.5 * signed_distance / aa_range;
+        if (dist <= -0.5 + 0.0001)
+            return 1.0;
+        if (dist >= 0.5 - 0.0001)
+            return 0.0;
+        return 0.5 + dist * (0.8431027 * dist * dist - 1.14453603);
+    }
+
+float init_transform_fs(vec2 local_pos) {
+    // Get signed distance from local rect bounds.
+    float d = signed_distance_rect(
+        local_pos,
+        vTransformBounds.xy,
+        vTransformBounds.zw
+    );
+
+    // Find the appropriate distance to apply the AA smoothstep over.
+    float aa_range = compute_aa_range(local_pos);
+
+    // Only apply AA to fragments outside the signed distance field.
+    return distance_aa(aa_range, d);
+}
 
 ivec2 get_gpu_cache_uv(int address) {
     return ivec2(uint(address) % 1024U,

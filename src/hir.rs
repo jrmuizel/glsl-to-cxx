@@ -40,7 +40,6 @@ pub struct FunctionType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Function(FunctionType),
-    Generic,
     FullySpecifiedType(FullySpecifiedType)
 }
 
@@ -800,9 +799,17 @@ fn translate_declaration(state: &mut State, d: &syntax::Declaration) -> Declarat
 }
 
 fn is_vector(ty: &Type) -> bool {
-    ty == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Vec3)) ||
-        ty == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Vec2)) ||
-        ty == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Vec4))
+    match ty {
+        Type::FullySpecifiedType(FullySpecifiedType { ty, .. }) => {
+            match ty.ty {
+                TypeSpecifierNonArray::Vec3 | TypeSpecifierNonArray::Vec2 | TypeSpecifierNonArray::Vec4 => {
+                    true
+                }
+                _ => false
+            }
+        }
+        _ => false
+    }
 }
 
 fn compatible_type(lhs: &Type, rhs: &Type) -> bool {
@@ -813,7 +820,12 @@ fn compatible_type(lhs: &Type, rhs: &Type) -> bool {
         lhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) {
         true
     } else {
-        lhs == rhs
+        match (lhs, rhs) {
+            (Type::FullySpecifiedType(lhs), Type::FullySpecifiedType(rhs)) => {
+                lhs.ty == rhs.ty
+            }
+            _ => panic!("unexpected type")
+        }
     }
 }
 
@@ -828,6 +840,10 @@ fn promoted_type(lhs: &Type, rhs: &Type) -> Type {
         rhs == &Type::new(TypeSpecifierNonArray::Double)) {
         // scalars promote to vectors
         lhs.clone()
+    } else if is_vector(&rhs) && (lhs == &Type::new(TypeSpecifierNonArray::Float) ||
+        lhs == &Type::new(TypeSpecifierNonArray::Double)) {
+        // scalars promote to vectors
+        rhs.clone()
     } else {
         match (lhs, rhs) {
             (Type::FullySpecifiedType(lhs), Type::FullySpecifiedType(rhs)) => {
@@ -851,14 +867,28 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
         syntax::Expr::Assignment(lhs, op, rhs) => {
             let lhs = Box::new(translate_expression(state, lhs));
             let rhs = Box::new(translate_expression(state, rhs));
-            assert_eq!(lhs.ty, rhs.ty);
+            assert!(compatible_type(&lhs.ty, &rhs.ty));
             let ty = lhs.ty.clone();
             Expr { kind: ExprKind::Assignment(lhs, op.clone(), rhs), ty }
         }
         syntax::Expr::Binary(op, lhs, rhs) => {
             let lhs = Box::new(translate_expression(state, lhs));
             let rhs = Box::new(translate_expression(state, rhs));
-            let ty = promoted_type(&lhs.ty, &rhs.ty);
+            let ty = if op == &BinaryOp::Mult {
+                match (&lhs.ty, &rhs.ty) {
+                    (Type::FullySpecifiedType(FullySpecifiedType { ty: ilhs, ..}),
+                     Type::FullySpecifiedType(FullySpecifiedType { ty: irhs, ..})) => {
+                        if ilhs.ty == TypeSpecifierNonArray::Mat3 && irhs.ty == TypeSpecifierNonArray::Vec3 {
+                            rhs.ty.clone()
+                        } else {
+                            promoted_type(&lhs.ty, &rhs.ty)
+                        }
+                    }
+                    _ => promoted_type(&lhs.ty, &rhs.ty)
+                }
+            } else {
+                promoted_type(&lhs.ty, &rhs.ty)
+            };
             Expr { kind: ExprKind::Binary(op.clone(), lhs, rhs), ty}
         }
         syntax::Expr::Unary(op, e) => {
@@ -967,6 +997,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
 
                 Expr { kind: ExprKind::Dot(e, i.clone()), ty }
             } else {
+                panic!();
                 Expr { kind: ExprKind::Dot(e, i.clone()), ty }
             }
         }
@@ -1044,13 +1075,29 @@ fn translate_case(state: &mut State, c: &syntax::CaseLabel) -> CaseLabel {
     }
 }
 
+fn translate_selection_rest(state: &mut State, s: &syntax::SelectionRestStatement) -> SelectionRestStatement {
+    match s {
+        syntax::SelectionRestStatement::Statement(s) => SelectionRestStatement::Statement(Box::new(translate_statement(state, s))),
+        syntax::SelectionRestStatement::Else(if_body, rest) => {
+            SelectionRestStatement::Else(Box::new(translate_statement(state, if_body)), Box::new(translate_statement(state, rest)))
+        }
+    }
+}
+
+fn translate_selection(state: &mut State, s: &syntax::SelectionStatement) -> SelectionStatement {
+    SelectionStatement {
+        cond: Box::new(translate_expression(state, &s.cond)),
+        rest: translate_selection_rest(state, &s.rest),
+    }
+}
+
 fn translate_simple_statement(state: &mut State, s: &syntax::SimpleStatement) -> SimpleStatement {
     match s {
         syntax::SimpleStatement::Declaration(d) => SimpleStatement::Declaration(translate_declaration(state, d)),
         syntax::SimpleStatement::CaseLabel(c) => SimpleStatement::CaseLabel(translate_case(state, c)),
         syntax::SimpleStatement::Expression(e) => SimpleStatement::Expression(e.as_ref().map(|e| translate_expression(state, e))),
         syntax::SimpleStatement::Iteration(i) => SimpleStatement::Iteration(translate_iteration(state, i)),
-        syntax::SimpleStatement::Selection(s) => SimpleStatement::Selection(panic!()),
+        syntax::SimpleStatement::Selection(s) => SimpleStatement::Selection(translate_selection(state, s)),
         syntax::SimpleStatement::Jump(j) => SimpleStatement::Jump(translate_jump(state, j)),
         syntax::SimpleStatement::Switch(s) => SimpleStatement::Switch(translate_switch(state, s))
     }
@@ -1152,16 +1199,37 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
                  vec![Type::new(Float), Type::new(Float), Type::new(Float)]);
     declare_function(state, "vec3", Type::new(Vec3),
                  vec![Type::new(Float)]);
+    declare_function(state, "vec3", Type::new(Vec3),
+                     vec![Type::new(Vec2), Type::new(Float)]);
+    declare_function(state, "vec4", Type::new(Vec4),
+                     vec![Type::new(Vec3), Type::new(Float)]);
+    declare_function(state, "vec2", Type::new(Vec2),
+                     vec![Type::new(Float)]);
     declare_function(state, "mix", Type::new(Vec3),
                  vec![Type::new(Vec3), Type::new(Vec3), Type::new(Vec3)]);
     declare_function(state, "mix", Type::new(Vec3),
                  vec![Type::new(Vec3), Type::new(Vec3), Type::new(Float)]);
-
+    declare_function(state, "mix", Type::new(Float),
+                     vec![Type::new(Float), Type::new(Float), Type::new(Float)]);
+    declare_function(state, "step", Type::new(Vec2),
+                     vec![Type::new(Vec2), Type::new(Vec2)]);
+    declare_function(state, "max", Type::new(Vec2),
+                     vec![Type::new(Vec2), Type::new(Vec2)]);
+    declare_function(state, "max", Type::new(Float),
+                     vec![Type::new(Float), Type::new(Float)]);
+    declare_function(state, "min", Type::new(Float),
+                     vec![Type::new(Float), Type::new(Float)]);
+    declare_function(state, "fwidth", Type::new(Vec2),
+                     vec![Type::new(Vec2)]);
     declare_function(state, "clamp", Type::new(Vec3),
                  vec![Type::new(Vec3), Type::new(Float), Type::new(Float)]);
+    declare_function(state, "clamp", Type::new(Double),
+                     vec![Type::new(Double), Type::new(Double), Type::new(Double)]);
     declare_function(state, "clamp", Type::new(Vec3),
                  vec![Type::new(Vec3), Type::new(Vec3), Type::new(Vec3)]);
+    declare_function(state, "length", Type::new(Float), vec![Type::new(Vec2)]);
     declare_function(state, "pow", Type::new(Vec3), vec![Type::new(Vec3)]);
+    declare_function(state, "pow", Type::new(Float), vec![Type::new(Float)]);
     declare_function(state, "lessThanEqual", Type::new(BVec3),
                      vec![Type::new(Vec3), Type::new(Vec3)]);
     declare_function(state, "if_then_else", Type::new(Vec3),
@@ -1178,6 +1246,14 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
                      vec![Type::new(Int)]);
     declare_function(state, "ivec2", Type::new(IVec2),
                      vec![Type::new(UInt), Type::new(UInt)]);
+    declare_function(state, "ivec2", Type::new(IVec2),
+                     vec![Type::new(UInt), Type::new(UInt)]);
+    declare_function(state, "texelFetch", Type::new(Vec4),
+                     vec![Type::new(Sampler2D), Type::new(IVec2), Type::new(Int)]);
+    declare_function(state, "texture", Type::new(Vec4),
+                     vec![Type::new(Sampler2D), Type::new(Vec3)]);
+    state.declare("gl_FragCoord", Type::new(Vec4));
+
 
     /*state.declare("clamp", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
     state.declare("pow", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
