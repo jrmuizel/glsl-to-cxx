@@ -256,9 +256,16 @@ Fragment brush_fs() {
 
   let mut state = hir::State::new();
   let hir = hir::ast_to_hir(&mut state, &r.unwrap());
-  show_translation_unit(&mut output, &state, &hir);
+  let mut state = OutputState { hir: state, indent: 0 };
+
+  show_translation_unit(&mut output, &mut state, &hir);
 
   println!("{}", output);
+}
+
+pub struct OutputState {
+  hir: hir::State,
+  indent: i32,
 }
 
 use std::fmt::Write;
@@ -269,8 +276,8 @@ pub fn show_identifier<F>(f: &mut F, i: &syntax::Identifier) where F: Write {
   let _ = f.write_str(&i.0);
 }
 
-pub fn show_sym<F>(f: &mut F, state: &State, i: &hir::SymRef) where F: Write {
-  let _ = f.write_str(&state.sym(*i).name);
+pub fn show_sym<F>(f: &mut F, state: &mut OutputState, i: &hir::SymRef) where F: Write {
+  let _ = f.write_str(&state.hir.sym(*i).name);
 }
 
 pub fn show_type_name<F>(f: &mut F, t: &syntax::TypeName) where F: Write {
@@ -600,7 +607,7 @@ pub fn show_double<F>(f: &mut F, x: f64) where F: Write {
   }
 }
 
-pub fn show_hir_expr<F>(f: &mut F, state: &State, expr: &hir::Expr) where F: Write {
+pub fn show_hir_expr<F>(f: &mut F, state: &mut OutputState, expr: &hir::Expr) where F: Write {
   match expr.kind {
     hir::ExprKind::Variable(ref i) => show_sym(f, state, i),
     hir::ExprKind::IntConst(ref x) => { let _ = write!(f, "{}", x); }
@@ -820,14 +827,15 @@ pub fn show_function_identifier<F>(f: &mut F, i: &syntax::FunIdentifier) where F
   }
 }
 
-pub fn show_hir_function_identifier<F>(f: &mut F, state: &State, i: &hir::FunIdentifier) where F: Write {
+pub fn show_hir_function_identifier<F>(f: &mut F, state: &mut OutputState, i: &hir::FunIdentifier) where F: Write {
   match *i {
     hir::FunIdentifier::Identifier(ref n) => show_sym(f, state, n),
     hir::FunIdentifier::Expr(ref e) => show_hir_expr(f, state, &*e)
   }
 }
 
-pub fn show_declaration<F>(f: &mut F, state: &State, d: &hir::Declaration) where F: Write {
+pub fn show_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::Declaration) where F: Write {
+  show_indent(f, state);
   match *d {
     hir::Declaration::FunctionPrototype(ref proto) => {
       show_function_prototype(f, &proto);
@@ -911,7 +919,7 @@ pub fn show_function_parameter_declarator<F>(f: &mut F, p: &hir::FunctionParamet
   show_arrayed_identifier(f, &p.ident);
 }
 
-pub fn show_init_declarator_list<F>(f: &mut F, state: &State, i: &hir::InitDeclaratorList) where F: Write {
+pub fn show_init_declarator_list<F>(f: &mut F, state: &mut OutputState, i: &hir::InitDeclaratorList) where F: Write {
   show_single_declaration(f, state, &i.head);
 
   for decl in &i.tail {
@@ -920,7 +928,7 @@ pub fn show_init_declarator_list<F>(f: &mut F, state: &State, i: &hir::InitDecla
   }
 }
 
-pub fn show_single_declaration<F>(f: &mut F, state: &State, d: &hir::SingleDeclaration) where F: Write {
+pub fn show_single_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclaration) where F: Write {
   show_fully_specified_type(f, &d.ty);
 
   if let Some(ref name) = d.name {
@@ -938,7 +946,7 @@ pub fn show_single_declaration<F>(f: &mut F, state: &State, d: &hir::SingleDecla
   }
 }
 
-pub fn show_single_declaration_no_type<F>(f: &mut F, state: &State, d: &hir::SingleDeclarationNoType) where F: Write {
+pub fn show_single_declaration_no_type<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclarationNoType) where F: Write {
   show_arrayed_identifier(f, &d.ident);
 
   if let Some(ref initializer) = d.initializer {
@@ -947,7 +955,7 @@ pub fn show_single_declaration_no_type<F>(f: &mut F, state: &State, d: &hir::Sin
   }
 }
 
-pub fn show_initializer<F>(f: &mut F, state: &State, i: &hir::Initializer) where F: Write {
+pub fn show_initializer<F>(f: &mut F, state: &mut OutputState, i: &hir::Initializer) where F: Write {
   match *i {
     hir::Initializer::Simple(ref e) => show_hir_expr(f, state, e),
     hir::Initializer::List(ref list) => {
@@ -984,30 +992,34 @@ pub fn show_block<F>(f: &mut F, b: &hir::Block) where F: Write {
   }
 }
 
-pub fn show_function_definition<F>(f: &mut F, state: &State, fd: &hir::FunctionDefinition) where F: Write {
+pub fn show_function_definition<F>(f: &mut F, state: &mut OutputState, fd: &hir::FunctionDefinition) where F: Write {
   show_function_prototype(f, &fd.prototype);
   let _ = f.write_str(" ");
   show_compound_statement(f, state, &fd.statement);
 }
 
-pub fn show_compound_statement<F>(f: &mut F, state: &State, cst: &hir::CompoundStatement) where F: Write {
+pub fn show_compound_statement<F>(f: &mut F, state: &mut OutputState, cst: &hir::CompoundStatement) where F: Write {
+  show_indent(f, state);
   let _ = f.write_str("{\n");
 
+  state.indent += 1;
   for st in &cst.statement_list {
     show_statement(f, state, st);
   }
+  state.indent -= 1;
 
+  show_indent(f, state);
   let _ = f.write_str("}\n");
 }
 
-pub fn show_statement<F>(f: &mut F, state: &State, st: &hir::Statement) where F: Write {
+pub fn show_statement<F>(f: &mut F, state: &mut OutputState, st: &hir::Statement) where F: Write {
   match *st {
     hir::Statement::Compound(ref cst) => show_compound_statement(f, state, cst),
     hir::Statement::Simple(ref sst) => show_simple_statement(f, state, sst)
   }
 }
 
-pub fn show_simple_statement<F>(f: &mut F, state: &State, sst: &hir::SimpleStatement) where F: Write {
+pub fn show_simple_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SimpleStatement) where F: Write {
   match *sst {
     hir::SimpleStatement::Declaration(ref d) => show_declaration(f, state, d),
     hir::SimpleStatement::Expression(ref e) => show_expression_statement(f, state, e),
@@ -1019,7 +1031,15 @@ pub fn show_simple_statement<F>(f: &mut F, state: &State, sst: &hir::SimpleState
   }
 }
 
-pub fn show_expression_statement<F>(f: &mut F, state: &State, est: &hir::ExprStatement) where F: Write {
+pub fn show_indent<F>(f: &mut F, state: &mut OutputState) where F: Write {
+  for i in 0..state.indent {
+    let _ = f.write_str(" ");
+  }
+}
+
+pub fn show_expression_statement<F>(f: &mut F, state: &mut OutputState, est: &hir::ExprStatement) where F: Write {
+  show_indent(f, state);
+
   if let Some(ref e) = *est {
     show_hir_expr(f, state, e);
   }
@@ -1027,14 +1047,15 @@ pub fn show_expression_statement<F>(f: &mut F, state: &State, est: &hir::ExprSta
   let _ = f.write_str(";\n");
 }
 
-pub fn show_selection_statement<F>(f: &mut F, state: &State, sst: &hir::SelectionStatement) where F: Write {
+pub fn show_selection_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SelectionStatement) where F: Write {
+  show_indent(f, state);
   let _ = f.write_str("if (");
   show_hir_expr(f, state, &sst.cond);
   let _= f.write_str(") {\n");
   show_selection_rest_statement(f, state, &sst.rest);
 }
 
-pub fn show_selection_rest_statement<F>(f: &mut F, state: &State, sst: &hir::SelectionRestStatement) where F: Write {
+pub fn show_selection_rest_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SelectionRestStatement) where F: Write {
   match *sst {
     hir::SelectionRestStatement::Statement(ref if_st) => {
       show_statement(f, state, if_st);
@@ -1048,19 +1069,24 @@ pub fn show_selection_rest_statement<F>(f: &mut F, state: &State, sst: &hir::Sel
   }
 }
 
-pub fn show_switch_statement<F>(f: &mut F, state: &State, sst: &hir::SwitchStatement) where F: Write {
+pub fn show_switch_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SwitchStatement) where F: Write {
+  show_indent(f, state);
   let _ = f.write_str("switch (");
   show_hir_expr(f, state, &sst.head);
   let _ = f.write_str(") {\n");
+  state.indent += 1;
 
   for st in &sst.body {
     show_statement(f, state, st);
   }
-
+  state.indent -= 1;
+  show_indent(f, state);
   let _ = f.write_str("}\n");
+
 }
 
-pub fn show_case_label<F>(f: &mut F, state: &State, cl: &hir::CaseLabel) where F: Write {
+pub fn show_case_label<F>(f: &mut F, state: &mut OutputState, cl: &hir::CaseLabel) where F: Write {
+  show_indent(f, state);
   match *cl {
     hir::CaseLabel::Case(ref e) => {
       let _ = f.write_str("case ");
@@ -1071,7 +1097,8 @@ pub fn show_case_label<F>(f: &mut F, state: &State, cl: &hir::CaseLabel) where F
   }
 }
 
-pub fn show_iteration_statement<F>(f: &mut F, state: &State, ist: &hir::IterationStatement) where F: Write {
+pub fn show_iteration_statement<F>(f: &mut F, state: &mut OutputState, ist: &hir::IterationStatement) where F: Write {
+  show_indent(f, state);
   match *ist {
     hir::IterationStatement::While(ref cond, ref body) => {
       let _ = f.write_str("while (");
@@ -1096,7 +1123,7 @@ pub fn show_iteration_statement<F>(f: &mut F, state: &State, ist: &hir::Iteratio
   }
 }
 
-pub fn show_condition<F>(f: &mut F, state: &State, c: &hir::Condition) where F: Write {
+pub fn show_condition<F>(f: &mut F, state: &mut OutputState, c: &hir::Condition) where F: Write {
   match *c {
     hir::Condition::Expr(ref e) => show_hir_expr(f, state, e),
     hir::Condition::Assignment(ref ty, ref name, ref initializer) => {
@@ -1109,7 +1136,7 @@ pub fn show_condition<F>(f: &mut F, state: &State, c: &hir::Condition) where F: 
   }
 }
 
-pub fn show_for_init_statement<F>(f: &mut F, state: &State, i: &hir::ForInitStatement) where F: Write {
+pub fn show_for_init_statement<F>(f: &mut F, state: &mut OutputState, i: &hir::ForInitStatement) where F: Write {
   match *i {
     hir::ForInitStatement::Expression(ref expr) => {
       if let Some(ref e) = *expr {
@@ -1120,7 +1147,7 @@ pub fn show_for_init_statement<F>(f: &mut F, state: &State, i: &hir::ForInitStat
   }
 }
 
-pub fn show_for_rest_statement<F>(f: &mut F, state: &State, r: &hir::ForRestStatement) where F: Write {
+pub fn show_for_rest_statement<F>(f: &mut F, state: &mut OutputState, r: &hir::ForRestStatement) where F: Write {
   if let Some(ref cond) = r.condition {
     show_condition(f, state, cond);
   }
@@ -1132,7 +1159,8 @@ pub fn show_for_rest_statement<F>(f: &mut F, state: &State, r: &hir::ForRestStat
   }
 }
 
-pub fn show_jump_statement<F>(f: &mut F, state: &State, j: &hir::JumpStatement) where F: Write {
+pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpStatement) where F: Write {
+  show_indent(f, state);
   match *j {
     hir::JumpStatement::Continue => { let _ = f.write_str("continue;\n"); }
     hir::JumpStatement::Break => { let _ = f.write_str("break;\n"); }
@@ -1193,7 +1221,7 @@ pub fn show_preprocessor_extension<F>(f: &mut F, pe: &hir::PreprocessorExtension
   let _ = f.write_str("\n");
 }
 
-pub fn show_external_declaration<F>(f: &mut F, state: &State, ed: &hir::ExternalDeclaration) where F: Write {
+pub fn show_external_declaration<F>(f: &mut F, state: &mut OutputState, ed: &hir::ExternalDeclaration) where F: Write {
   match *ed {
     hir::ExternalDeclaration::Preprocessor(ref pp) => show_preprocessor(f, pp),
   hir::ExternalDeclaration::FunctionDefinition(ref fd) => show_function_definition(f, state, fd),
@@ -1201,7 +1229,7 @@ pub fn show_external_declaration<F>(f: &mut F, state: &State, ed: &hir::External
   }
 }
 
-pub fn show_translation_unit<F>(f: &mut F, state: &State, tu: &hir::TranslationUnit) where F: Write {
+pub fn show_translation_unit<F>(f: &mut F, state: &mut OutputState, tu: &hir::TranslationUnit) where F: Write {
   for ed in &(tu.0).0 {
     show_external_declaration(f, state, ed);
   }
