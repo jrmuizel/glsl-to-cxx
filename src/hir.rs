@@ -40,12 +40,12 @@ pub struct FunctionType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Function(FunctionType),
-    FullySpecifiedType(FullySpecifiedType)
+    Variable(FullySpecifiedType)
 }
 
 impl Type {
     fn new(t: TypeSpecifierNonArray) -> Self {
-        Type::FullySpecifiedType(FullySpecifiedType::new(t))
+        Type::Variable(FullySpecifiedType::new(t))
     }
 }
 
@@ -768,7 +768,7 @@ fn translate_initializater(state: &mut State, i: &syntax::Initializer) -> Initia
 fn translate_single_declaration(state: &mut State, d: &syntax::SingleDeclaration) -> SingleDeclaration {
     let mut ty = d.ty.clone();
     ty.ty.array_specifier = d.array_specifier.clone();
-    state.declare(d.name.as_ref().unwrap().as_str(), Type::FullySpecifiedType(ty.clone()));
+    state.declare(d.name.as_ref().unwrap().as_str(), Type::Variable(ty.clone()));
     SingleDeclaration {
         name: d.name.clone(),
         ty,
@@ -800,7 +800,7 @@ fn translate_declaration(state: &mut State, d: &syntax::Declaration) -> Declarat
 
 fn is_vector(ty: &Type) -> bool {
     match ty {
-        Type::FullySpecifiedType(FullySpecifiedType { ty, .. }) => {
+        Type::Variable(FullySpecifiedType { ty, .. }) => {
             match ty.ty {
                 TypeSpecifierNonArray::Vec3 | TypeSpecifierNonArray::Vec2 | TypeSpecifierNonArray::Vec4 => {
                     true
@@ -813,15 +813,15 @@ fn is_vector(ty: &Type) -> bool {
 }
 
 fn compatible_type(lhs: &Type, rhs: &Type) -> bool {
-    if lhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Double)) &&
-        rhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) {
+    if lhs == &Type::Variable(FullySpecifiedType::new(TypeSpecifierNonArray::Double)) &&
+        rhs == &Type::Variable(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) {
         true
-    } else if rhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Double)) &&
-        lhs == &Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) {
+    } else if rhs == &Type::Variable(FullySpecifiedType::new(TypeSpecifierNonArray::Double)) &&
+        lhs == &Type::Variable(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) {
         true
     } else {
         match (lhs, rhs) {
-            (Type::FullySpecifiedType(lhs), Type::FullySpecifiedType(rhs)) => {
+            (Type::Variable(lhs), Type::Variable(rhs)) => {
                 lhs.ty == rhs.ty
             }
             _ => panic!("unexpected type")
@@ -846,7 +846,7 @@ fn promoted_type(lhs: &Type, rhs: &Type) -> Type {
         rhs.clone()
     } else {
         match (lhs, rhs) {
-            (Type::FullySpecifiedType(lhs), Type::FullySpecifiedType(rhs)) => {
+            (Type::Variable(lhs), Type::Variable(rhs)) => {
                 assert_eq!(lhs.ty, rhs.ty)
             }
             _ => panic!("unexpected types {:?} {:?}", lhs, rhs)
@@ -876,8 +876,8 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
             let rhs = Box::new(translate_expression(state, rhs));
             let ty = if op == &BinaryOp::Mult {
                 match (&lhs.ty, &rhs.ty) {
-                    (Type::FullySpecifiedType(FullySpecifiedType { ty: ilhs, ..}),
-                     Type::FullySpecifiedType(FullySpecifiedType { ty: irhs, ..})) => {
+                    (Type::Variable(FullySpecifiedType { ty: ilhs, ..}),
+                     Type::Variable(FullySpecifiedType { ty: irhs, ..})) => {
                         if ilhs.ty == TypeSpecifierNonArray::Mat3 && irhs.ty == TypeSpecifierNonArray::Vec3 {
                             rhs.ty.clone()
                         } else {
@@ -897,7 +897,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
             Expr { kind: ExprKind::Unary(op.clone(), e), ty}
         }
         syntax::Expr::BoolConst(b) => {
-            Expr { kind: ExprKind::BoolConst(*b), ty: Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Bool)) }
+            Expr { kind: ExprKind::BoolConst(*b), ty: Type::Variable(FullySpecifiedType::new(TypeSpecifierNonArray::Bool)) }
         }
         syntax::Expr::Comma(lhs, rhs) => {
             let lhs = Box::new(translate_expression(state, lhs));
@@ -907,10 +907,10 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
             Expr { kind: ExprKind::Comma(lhs, rhs), ty }
         }
         syntax::Expr::DoubleConst(d) => {
-            Expr { kind: ExprKind::DoubleConst(*d), ty: Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Double)) }
+            Expr { kind: ExprKind::DoubleConst(*d), ty: Type::Variable(FullySpecifiedType::new(TypeSpecifierNonArray::Double)) }
         }
         syntax::Expr::FloatConst(f) => {
-            Expr { kind: ExprKind::FloatConst(*f), ty: Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) }
+            Expr { kind: ExprKind::FloatConst(*f), ty: Type::Variable(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) }
         },
         syntax::Expr::FunCall(fun, params) => {
             let ty: Type;
@@ -960,10 +960,10 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
             }
         }
         syntax::Expr::IntConst(i) => {
-            Expr { kind: ExprKind::IntConst(*i), ty: Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::Int)) }
+            Expr { kind: ExprKind::IntConst(*i), ty: Type::Variable(FullySpecifiedType::new(TypeSpecifierNonArray::Int)) }
         }
         syntax::Expr::UIntConst(u) => {
-            Expr { kind: ExprKind::UIntConst(*u), ty: Type::FullySpecifiedType(FullySpecifiedType::new(TypeSpecifierNonArray::UInt)) }
+            Expr { kind: ExprKind::UIntConst(*u), ty: Type::Variable(FullySpecifiedType::new(TypeSpecifierNonArray::UInt)) }
         }
         syntax::Expr::PostDec(e) => {
             let e = Box::new(translate_expression(state, e));
@@ -987,7 +987,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
             let e = Box::new(translate_expression(state, e));
             let ty = e.ty.clone();
             if is_vector(&ty) {
-                let ty = Type::FullySpecifiedType(FullySpecifiedType::new(match i.as_str().len() {
+                let ty = Type::Variable(FullySpecifiedType::new(match i.as_str().len() {
                     1 => TypeSpecifierNonArray::Float,
                     2 => TypeSpecifierNonArray::Vec2,
                     3 => TypeSpecifierNonArray::Vec3,
@@ -1007,7 +1007,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                 Type::new(TypeSpecifierNonArray::Float)
             } else {
                 match &e.ty {
-                    Type::FullySpecifiedType(f) => {
+                    Type::Variable(f) => {
                         assert!(f.ty.array_specifier.is_some());
                         e.ty.clone()
                     }
@@ -1127,7 +1127,7 @@ fn translate_function_parameter_declaration(state: &mut State, p: &syntax::Funct
 {
     match p {
         syntax::FunctionParameterDeclaration::Named(qual, p) => {
-            state.declare(p.ident.ident.as_str(), Type::FullySpecifiedType(
+            state.declare(p.ident.ident.as_str(), Type::Variable(
                 FullySpecifiedType {
                     qualifier: None,
                     ty: TypeSpecifier {
@@ -1158,7 +1158,7 @@ fn translate_function_definition(state: &mut State, fd: &syntax::FunctionDefinit
         FunctionParameterDeclaration::Named(_, p) => Type::new(p.ty.ty.clone()),
         FunctionParameterDeclaration::Unnamed(_, p) => Type::new(p.ty.clone()),
     }).collect();
-    let sig = FunctionSignature{ ret: Box::new(Type::FullySpecifiedType(prototype.ty.clone())), params };
+    let sig = FunctionSignature{ ret: Box::new(Type::Variable(prototype.ty.clone())), params };
     state.declare(fd.prototype.name.as_str(), Type::Function(FunctionType{ signatures: NonEmpty::new(sig)}));
     state.push_scope(fd.prototype.name.as_str().into());
     let f = FunctionDefinition {
