@@ -829,7 +829,12 @@ fn promoted_type(lhs: &Type, rhs: &Type) -> Type {
         // scalars promote to vectors
         lhs.clone()
     } else {
-        assert_eq!(lhs, rhs);
+        match (lhs, rhs) {
+            (Type::FullySpecifiedType(lhs), Type::FullySpecifiedType(rhs)) => {
+                assert_eq!(lhs.ty, rhs.ty)
+            }
+            _ => panic!("unexpected types {:?} {:?}", lhs, rhs)
+        }
         lhs.clone()
     }
 }
@@ -1101,10 +1106,16 @@ fn translate_prototype(state: &mut State, cs: &syntax::FunctionPrototype) -> Fun
 }
 
 fn translate_function_definition(state: &mut State, fd: &syntax::FunctionDefinition) -> FunctionDefinition {
-    //state.declare(fd.prototype.name.as_str(), panic!());
+    let prototype = translate_prototype(state, &fd.prototype);
+    let params = prototype.parameters.iter().map(|p| match p {
+        FunctionParameterDeclaration::Named(_, p) => Type::new(p.ty.ty.clone()),
+        FunctionParameterDeclaration::Unnamed(_, p) => Type::new(p.ty.clone()),
+    }).collect();
+    let sig = FunctionSignature{ ret: Box::new(Type::FullySpecifiedType(prototype.ty.clone())), params };
+    state.declare(fd.prototype.name.as_str(), Type::Function(FunctionType{ signatures: NonEmpty::new(sig)}));
     state.push_scope(fd.prototype.name.as_str().into());
     let f = FunctionDefinition {
-        prototype: translate_prototype(state, &fd.prototype),
+        prototype,
         statement: translate_compound_statement(state, &fd.statement)
     };
     state.pop_scope();
@@ -1157,8 +1168,16 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
                      vec![Type::new(BVec3), Type::new(Vec3), Type::new(Vec3)]);
     declare_function(state, "floor", Type::new(Vec4),
                      vec![Type::new(Vec4)]);
+    declare_function(state, "floor", Type::new(Double),
+                     vec![Type::new(Double)]);
     declare_function(state, "int", Type::new(Int),
                      vec![Type::new(Float)]);
+    declare_function(state, "uint", Type::new(UInt),
+                     vec![Type::new(Float)]);
+    declare_function(state, "uint", Type::new(UInt),
+                     vec![Type::new(Int)]);
+    declare_function(state, "ivec2", Type::new(IVec2),
+                     vec![Type::new(UInt), Type::new(UInt)]);
 
     /*state.declare("clamp", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
     state.declare("pow", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));

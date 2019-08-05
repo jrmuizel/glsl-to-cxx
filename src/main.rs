@@ -9,6 +9,19 @@ use hir::State;
 
 fn main() {
   let r = TranslationUnit::parse("
+
+uniform sampler2D sGpuCache;
+
+ivec2 get_gpu_cache_uv(int address) {
+    return ivec2(uint(address) % 1024U,
+                 uint(address) / 1024U);
+}
+
+vec4 fetch_from_gpu_cache_1(int address) {
+    ivec2 uv = get_gpu_cache_uv(address);
+    return texelFetch(sGpuCache, uv, 0);
+}
+
 // Interpolated UV coordinates to sample.
 in vec2 vUv;
 in vec2 vLocalPos;
