@@ -40,7 +40,8 @@ pub struct FunctionType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Function(FunctionType),
-    Variable(FullySpecifiedType)
+    Variable(FullySpecifiedType),
+    Struct(FullySpecifiedType)
 }
 
 impl Type {
@@ -768,7 +769,14 @@ fn translate_initializater(state: &mut State, i: &syntax::Initializer) -> Initia
 fn translate_single_declaration(state: &mut State, d: &syntax::SingleDeclaration) -> SingleDeclaration {
     let mut ty = d.ty.clone();
     ty.ty.array_specifier = d.array_specifier.clone();
-    state.declare(d.name.as_ref().unwrap().as_str(), Type::Variable(ty.clone()));
+    match &ty.ty.ty {
+        TypeSpecifierNonArray::Struct(s) => {
+            state.declare(s.name.as_ref().unwrap().as_str(), Type::Struct(ty.clone()));
+        }
+        _ => {
+            state.declare(d.name.as_ref().unwrap().as_str(), Type::Variable(ty.clone()));
+        }
+    }
     SingleDeclaration {
         name: d.name.clone(),
         ty,
@@ -913,7 +921,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
             Expr { kind: ExprKind::FloatConst(*f), ty: Type::Variable(FullySpecifiedType::new(TypeSpecifierNonArray::Float)) }
         },
         syntax::Expr::FunCall(fun, params) => {
-            let ty: Type;
+            let ret_ty: Type;
             let params: Vec<Expr> = params.iter().map(|x| translate_expression(state, x)).collect();
             Expr {
                 kind:
@@ -924,39 +932,44 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                                 Some(s) => s,
                                 None => panic!("missing {}", i.as_str())
                             };
-                            let fn_ty = match &state.sym(sym).ty {
-                                Type::Function(f) => f,
+                            match &state.sym(sym).ty {
+                                Type::Function(fn_ty) => {
+                                    let mut ret = None;
+                                    for sig in &fn_ty.signatures {
+                                        let mut matching = true;
+                                        for (e, p) in params.iter().zip(sig.params.iter()) {
+                                            if !compatible_type(&e.ty, p) {
+                                                matching = false;
+                                                break;
+                                            }
+                                        }
+                                        if matching {
+                                            ret = Some(sig.ret.clone());
+                                            break;
+                                        }
+                                    }
+                                    ret_ty = match ret {
+                                        Some(t) => *t,
+                                        None => {
+                                            dbg!(&fn_ty.signatures);
+                                            dbg!(params.iter().map(|p| &p.ty).collect::<Vec<_>>());
+                                            panic!("no matching func {}", i.as_str())
+                                        }
+                                    };
+                                },
+                                Type::Struct(t) => {
+                                    ret_ty = Type::Variable(t.clone())
+                                }
                                 _ => panic!("can only call functions")
                             };
-                            let mut ret = None;
-                            for sig in &fn_ty.signatures {
-                                let mut matching = true;
-                                for (e, p) in params.iter().zip(sig.params.iter()) {
-                                    if !compatible_type(&e.ty, p) {
-                                        matching = false;
-                                        break;
-                                    }
-                                }
-                                if matching {
-                                    ret = Some(sig.ret.clone());
-                                    break;
-                                }
-                            }
-                            ty = match ret {
-                                Some(t) => *t,
-                                None => {
-                                    dbg!(&fn_ty.signatures);
-                                    dbg!(params.iter().map(|p| &p.ty).collect::<Vec<_>>());
-                                    panic!("no matching func {}", i.as_str())
-                                }
-                            };
+
                             FunIdentifier::Identifier(sym)
                         },
                         _ => panic!()
                     },
                     params
                 ),
-                ty,
+                ty: ret_ty,
             }
         }
         syntax::Expr::IntConst(i) => {
@@ -1253,13 +1266,6 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
     declare_function(state, "texture", Type::var(Vec4),
                      vec![Type::var(Sampler2D), Type::var(Vec3)]);
     state.declare("gl_FragCoord", Type::var(Vec4));
-
-
-    /*state.declare("clamp", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
-    state.declare("pow", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
-    state.declare("if_then_else", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
-    state.declare("lessThanEqual", Type::Function(FunctionType { ret: Box::new(Type::Generic) }));
-*/
 
     TranslationUnit(tu.0.map(state, translate_external_declaration))
 }

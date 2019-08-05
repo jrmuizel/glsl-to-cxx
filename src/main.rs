@@ -252,7 +252,6 @@ Fragment brush_fs() {
     }");
 
 */
-  println!("{:#?}", r);
   let mut output = String::new();
 
   let mut state = hir::State::new();
@@ -260,7 +259,6 @@ Fragment brush_fs() {
   show_translation_unit(&mut output, &state, &hir);
 
   println!("{}", output);
-  println!("{:?}", state)
 }
 
 use std::fmt::Write;
