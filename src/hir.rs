@@ -243,6 +243,64 @@ pub struct Expr {
     pub ty: Type
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum FieldSet {
+    Rgba,
+    Xyzw,
+    Stpq,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SwizzleSelector {
+    pub field_set: FieldSet,
+    pub components: Vec<i8>
+}
+
+impl SwizzleSelector {
+    fn parse(s: &str) -> Self {
+        let mut components = Vec::new();
+        let mut field_set = Vec::new();
+
+        for c in s.chars() {
+            match c {
+                'r' => { components.push(0); field_set.push(FieldSet::Rgba); }
+                'x' => { components.push(0); field_set.push(FieldSet::Xyzw); }
+                's' => { components.push(0); field_set.push(FieldSet::Stpq); }
+
+                'g' => { components.push(1); field_set.push(FieldSet::Rgba); }
+                'y' => { components.push(1); field_set.push(FieldSet::Xyzw); }
+                't' => { components.push(1); field_set.push(FieldSet::Stpq); }
+
+                'b' => { components.push(2); field_set.push(FieldSet::Rgba); }
+                'z' => { components.push(2); field_set.push(FieldSet::Xyzw); }
+                'p' => { components.push(2); field_set.push(FieldSet::Stpq); }
+
+                'a' => { components.push(3); field_set.push(FieldSet::Rgba); }
+                'w' => { components.push(3); field_set.push(FieldSet::Xyzw); }
+                'q' => { components.push(3); field_set.push(FieldSet::Stpq); }
+                _ => panic!("bad selector")
+            }
+        }
+
+        let first = &field_set[0];
+        assert!(field_set.iter().all(|item| item == first));
+        assert!(components.len() <= 4);
+        SwizzleSelector { field_set: first.clone(), components }
+    }
+
+    pub fn to_string(&self) -> String {
+        let mut s = String::new();
+        let fs = match self.field_set {
+            FieldSet::Rgba => ['r','g','b','a'],
+            FieldSet::Xyzw => ['x', 'y','z','w'],
+            FieldSet::Stpq => ['s','t','p','q'],
+        };
+        for i in &self.components {
+            s.push(fs[*i as usize])
+        }
+        s
+    }
+}
 
 /// The most general form of an expression. As you can see if you read the variant list, in GLSL, an
 /// assignment is an expression. This is a bit silly but think of an assignment as a statement first
@@ -278,6 +336,8 @@ pub enum ExprKind {
     FunCall(FunIdentifier, Vec<Expr>),
     /// An expression associated with a field selection (struct).
     Dot(Box<Expr>, Identifier),
+    /// An expression associated with a component selection
+    SwizzleSelector(Box<Expr>, SwizzleSelector),
     /// Post-incrementation of an expression.
     PostInc(Box<Expr>),
     /// Post-decrementation of an expression.
@@ -997,7 +1057,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                     _ => panic!(),
                 }));
 
-                Expr { kind: ExprKind::Dot(e, i.clone()), ty }
+                Expr { kind: ExprKind::SwizzleSelector(e, SwizzleSelector::parse(i.as_str())), ty }
             } else {
                 panic!();
                 Expr { kind: ExprKind::Dot(e, i.clone()), ty }

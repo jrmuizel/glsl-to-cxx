@@ -290,7 +290,7 @@ pub fn show_type_specifier_non_array<F>(f: &mut F, t: &syntax::TypeSpecifierNonA
     syntax::TypeSpecifierNonArray::Bool => { let _ = f.write_str("bool"); }
     syntax::TypeSpecifierNonArray::Int => { let _ = f.write_str("int"); }
     syntax::TypeSpecifierNonArray::UInt => { let _ = f.write_str("uint"); }
-    syntax::TypeSpecifierNonArray::Float => { let _ = f.write_str("Float"); }
+    syntax::TypeSpecifierNonArray::Float => { let _ = f.write_str("float"); }
     syntax::TypeSpecifierNonArray::Double => { let _ = f.write_str("double"); }
     syntax::TypeSpecifierNonArray::Vec2 => { let _ = f.write_str("vec2"); }
     syntax::TypeSpecifierNonArray::Vec3 => { let _ = f.write_str("vec3"); }
@@ -671,6 +671,13 @@ pub fn show_hir_expr<F>(f: &mut F, state: &mut OutputState, expr: &hir::Expr) wh
       let _ = f.write_str(")");
       let _ = f.write_str(".");
       show_identifier(f, i);
+    }
+    hir::ExprKind::SwizzleSelector(ref e, ref s) => {
+      let _ = f.write_str("(");
+      show_hir_expr(f, state, &e);
+      let _ = f.write_str(")");
+      let _ = f.write_str(".");
+      let _ = f.write_str(&s.to_string());
     }
     hir::ExprKind::PostInc(ref e) => {
       show_hir_expr(f, state, &e);
