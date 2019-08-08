@@ -252,23 +252,49 @@ Fragment brush_fs() {
     }");
 
 */
-  let mut output = String::new();
+  let mut output_glsl = String::new();
+
+  let mut ast_glsl = String::new();
+  let r = r.unwrap();
+  glsl::transpiler::glsl::show_translation_unit(&mut ast_glsl, &r);
 
   let mut state = hir::State::new();
   //println!("{:#?}", r);
-  let hir = hir::ast_to_hir(&mut state, &r.unwrap());
+  let hir = hir::ast_to_hir(&mut state, &r);
   //println!("{:#?}", hir);
 
-  let mut state = OutputState { hir: state, indent: 0 };
+  let mut state = OutputState { hir: state, indent: 0, should_indent: false, output_cxx: false };
 
-  show_translation_unit(&mut output, &mut state, &hir);
+  show_translation_unit(&mut output_glsl, &mut state, &hir);
 
-  println!("{}", output);
+  state.should_indent = true;
+  state.output_cxx = true;
+  let mut output_cxx = String::new();
+  show_translation_unit(&mut output_cxx, &mut state, &hir);
+  use std::io::Write;
+  let mut fast = std::fs::File::create("ast").unwrap();
+  fast.write(ast_glsl.as_bytes());
+  let mut hir = std::fs::File::create("hir").unwrap();
+  hir.write(output_glsl.as_bytes());
+
+
+  println!("{}", output_cxx);
 }
 
 pub struct OutputState {
   hir: hir::State,
+  should_indent: bool,
+  output_cxx: bool,
   indent: i32,
+}
+
+impl OutputState {
+  fn indent(&mut self) {
+    if self.should_indent { self.indent += 1 }
+  }
+  fn outdent(&mut self) {
+    if self.should_indent { self.indent -= 1 }
+  }
 }
 
 use std::fmt::Write;
@@ -287,13 +313,13 @@ pub fn show_type_name<F>(f: &mut F, t: &syntax::TypeName) where F: Write {
   let _ = f.write_str(&t.0);
 }
 
-pub fn show_type_specifier_non_array<F>(f: &mut F, t: &syntax::TypeSpecifierNonArray) where F: Write {
+pub fn show_type_specifier_non_array<F>(f: &mut F, state: &mut OutputState, t: &syntax::TypeSpecifierNonArray) where F: Write {
   match *t {
     syntax::TypeSpecifierNonArray::Void => { let _ = f.write_str("void"); }
     syntax::TypeSpecifierNonArray::Bool => { let _ = f.write_str("bool"); }
     syntax::TypeSpecifierNonArray::Int => { let _ = f.write_str("int"); }
     syntax::TypeSpecifierNonArray::UInt => { let _ = f.write_str("uint"); }
-    syntax::TypeSpecifierNonArray::Float => { let _ = f.write_str("Float"); }
+    syntax::TypeSpecifierNonArray::Float => { let _ = f.write_str("float"); }
     syntax::TypeSpecifierNonArray::Double => { let _ = f.write_str("double"); }
     syntax::TypeSpecifierNonArray::Vec2 => { let _ = f.write_str("vec2"); }
     syntax::TypeSpecifierNonArray::Vec3 => { let _ = f.write_str("vec3"); }
@@ -402,29 +428,29 @@ pub fn show_type_specifier_non_array<F>(f: &mut F, t: &syntax::TypeSpecifierNonA
     syntax::TypeSpecifierNonArray::UImage2DMSArray => { let _ = f.write_str("uimage2DMSArray"); }
     syntax::TypeSpecifierNonArray::USamplerCubeArray => { let _ = f.write_str("usamplerCubeArray"); }
     syntax::TypeSpecifierNonArray::UImageCubeArray => { let _ = f.write_str("uimageCubeArray"); }
-    syntax::TypeSpecifierNonArray::Struct(ref s) => show_struct_non_declaration(f, s),
+    syntax::TypeSpecifierNonArray::Struct(ref s) => show_struct_non_declaration(f, state, s),
     syntax::TypeSpecifierNonArray::TypeName(ref tn) => show_type_name(f, tn)
   }
 }
 
-pub fn show_type_specifier<F>(f: &mut F, t: &syntax::TypeSpecifier) where F: Write {
-  show_type_specifier_non_array(f, &t.ty);
+pub fn show_type_specifier<F>(f: &mut F, state: &mut OutputState, t: &syntax::TypeSpecifier) where F: Write {
+  show_type_specifier_non_array(f, state, &t.ty);
 
   if let Some(ref arr_spec) = t.array_specifier {
     show_array_spec(f, arr_spec);
   }
 }
 
-pub fn show_fully_specified_type<F>(f: &mut F, t: &syntax::FullySpecifiedType) where F: Write {
+pub fn show_fully_specified_type<F>(f: &mut F, state: &mut OutputState, t: &syntax::FullySpecifiedType) where F: Write {
   if let Some(ref qual) = t.qualifier {
     show_type_qualifier(f, &qual);
     let _ = f.write_str(" ");
   }
 
-  show_type_specifier(f, &t.ty);
+  show_type_specifier(f, state, &t.ty);
 }
 
-pub fn show_struct_non_declaration<F>(f: &mut F, s: &syntax::StructSpecifier) where F: Write {
+pub fn show_struct_non_declaration<F>(f: &mut F, state: &mut OutputState, s: &syntax::StructSpecifier) where F: Write {
   let _ = f.write_str("struct ");
 
   if let Some(ref name) = s.name {
@@ -434,24 +460,24 @@ pub fn show_struct_non_declaration<F>(f: &mut F, s: &syntax::StructSpecifier) wh
   let _ = f.write_str("{\n");
 
   for field in &s.fields.0 {
-    show_struct_field(f, field);
+    show_struct_field(f, state, field);
   }
 
   let _ = f.write_str("}");
 }
 
-pub fn show_struct<F>(f: &mut F, s: &syntax::StructSpecifier) where F: Write {
-  show_struct_non_declaration(f, s);
+pub fn show_struct<F>(f: &mut F, state: &mut OutputState, s: &syntax::StructSpecifier) where F: Write {
+  show_struct_non_declaration(f, state, s);
   let _ = f.write_str(";\n");
 }
 
-pub fn show_struct_field<F>(f: &mut F, field: &syntax::StructFieldSpecifier) where F: Write {
+pub fn show_struct_field<F>(f: &mut F, state: &mut OutputState, field: &syntax::StructFieldSpecifier) where F: Write {
   if let Some(ref qual) = field.qualifier {
     show_type_qualifier(f, &qual);
     let _ = f.write_str(" ");
   }
 
-  show_type_specifier(f, &field.ty);
+  show_type_specifier(f, state, &field.ty);
   let _ = f.write_str(" ");
 
   // there’s at least one identifier
@@ -848,7 +874,7 @@ pub fn show_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::Declarat
   show_indent(f, state);
   match *d {
     hir::Declaration::FunctionPrototype(ref proto) => {
-      show_function_prototype(f, &proto);
+      show_function_prototype(f, state, &proto);
       let _ = f.write_str(";\n");
     }
     hir::Declaration::InitDeclaratorList(ref list) => {
@@ -857,11 +883,11 @@ pub fn show_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::Declarat
     }
     hir::Declaration::Precision(ref qual, ref ty) => {
       show_precision_qualifier(f, &qual);
-      show_type_specifier(f, &ty);
+      show_type_specifier(f, state, &ty);
       let _ = f.write_str(";\n");
     }
     hir::Declaration::Block(ref block) => {
-      show_block(f, &block);
+      show_block(f, state, &block);
       let _ = f.write_str(";\n");
     }
     hir::Declaration::Global(ref qual, ref identifiers) => {
@@ -882,8 +908,8 @@ pub fn show_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::Declarat
   }
 }
 
-pub fn show_function_prototype<F>(f: &mut F, fp: &hir::FunctionPrototype) where F: Write {
-  show_fully_specified_type(f, &fp.ty);
+pub fn show_function_prototype<F>(f: &mut F, state: &mut OutputState, fp: &hir::FunctionPrototype) where F: Write {
+  show_fully_specified_type(f, state, &fp.ty);
   let _ = f.write_str(" ");
   show_identifier(f, &fp.name);
 
@@ -892,17 +918,17 @@ pub fn show_function_prototype<F>(f: &mut F, fp: &hir::FunctionPrototype) where 
   if !fp.parameters.is_empty() {
     let mut iter = fp.parameters.iter();
     let first = iter.next().unwrap();
-    show_function_parameter_declaration(f, first);
+    show_function_parameter_declaration(f, state, first);
 
     for param in iter {
       let _ = f.write_str(", ");
-      show_function_parameter_declaration(f, param);
+      show_function_parameter_declaration(f, state, param);
     }
   }
 
   let _ = f.write_str(")");
 }
-pub fn show_function_parameter_declaration<F>(f: &mut F, p: &hir::FunctionParameterDeclaration) where F: Write {
+pub fn show_function_parameter_declaration<F>(f: &mut F, state: &mut OutputState, p: &hir::FunctionParameterDeclaration) where F: Write {
   match *p {
     hir::FunctionParameterDeclaration::Named(ref qual, ref fpd) => {
       if let Some(ref q) = *qual {
@@ -910,7 +936,7 @@ pub fn show_function_parameter_declaration<F>(f: &mut F, p: &hir::FunctionParame
         let _ = f.write_str(" ");
       }
 
-      show_function_parameter_declarator(f, fpd);
+      show_function_parameter_declarator(f, state, fpd);
     }
     hir::FunctionParameterDeclaration::Unnamed(ref qual, ref ty) => {
       if let Some(ref q) = *qual {
@@ -918,13 +944,13 @@ pub fn show_function_parameter_declaration<F>(f: &mut F, p: &hir::FunctionParame
         let _ = f.write_str(" ");
       }
 
-      show_type_specifier(f, ty);
+      show_type_specifier(f, state, ty);
     }
   }
 }
 
-pub fn show_function_parameter_declarator<F>(f: &mut F, p: &hir::FunctionParameterDeclarator) where F: Write {
-  show_type_specifier(f, &p.ty);
+pub fn show_function_parameter_declarator<F>(f: &mut F, state: &mut OutputState, p: &hir::FunctionParameterDeclarator) where F: Write {
+  show_type_specifier(f, state, &p.ty);
   let _ = f.write_str(" ");
   show_arrayed_identifier(f, &p.ident);
 }
@@ -939,7 +965,7 @@ pub fn show_init_declarator_list<F>(f: &mut F, state: &mut OutputState, i: &hir:
 }
 
 pub fn show_single_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclaration) where F: Write {
-  show_fully_specified_type(f, &d.ty);
+  show_fully_specified_type(f, state, &d.ty);
 
   if let Some(ref name) = d.name {
     let _ = f.write_str(" ");
@@ -985,14 +1011,14 @@ pub fn show_initializer<F>(f: &mut F, state: &mut OutputState, i: &hir::Initiali
   }
 }
 
-pub fn show_block<F>(f: &mut F, b: &hir::Block) where F: Write {
+pub fn show_block<F>(f: &mut F, state: &mut OutputState, b: &hir::Block) where F: Write {
   show_type_qualifier(f, &b.qualifier);
   let _ = f.write_str(" ");
   show_identifier(f, &b.name);
   let _ = f.write_str(" {");
 
   for field in &b.fields {
-    show_struct_field(f, field);
+    show_struct_field(f, state, field);
     let _ = f.write_str("\n");
   }
   let _ = f.write_str("}");
@@ -1003,7 +1029,7 @@ pub fn show_block<F>(f: &mut F, b: &hir::Block) where F: Write {
 }
 
 pub fn show_function_definition<F>(f: &mut F, state: &mut OutputState, fd: &hir::FunctionDefinition) where F: Write {
-  show_function_prototype(f, &fd.prototype);
+  show_function_prototype(f, state, &fd.prototype);
   let _ = f.write_str(" ");
   show_compound_statement(f, state, &fd.statement);
 }
@@ -1012,11 +1038,11 @@ pub fn show_compound_statement<F>(f: &mut F, state: &mut OutputState, cst: &hir:
   show_indent(f, state);
   let _ = f.write_str("{\n");
 
-  state.indent += 1;
+  state.indent();
   for st in &cst.statement_list {
     show_statement(f, state, st);
   }
-  state.indent -= 1;
+  state.outdent();
 
   show_indent(f, state);
   let _ = f.write_str("}\n");
@@ -1083,17 +1109,17 @@ pub fn show_switch_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::S
   let _ = f.write_str("switch (");
   show_hir_expr(f, state, &sst.head);
   let _ = f.write_str(") {\n");
-  state.indent += 1;
+  state.indent();
 
   for case in &sst.cases {
     show_case_label(f, state, &case.label);
-    state.indent += 1;
+    state.indent();
     for st in &case.stmts {
       show_statement(f, state, st);
     }
-    state.indent -= 1;
+    state.outdent();
   }
-  state.indent -= 1;
+  state.outdent();
   show_indent(f, state);
   let _ = f.write_str("}\n");
 
@@ -1141,7 +1167,7 @@ pub fn show_condition<F>(f: &mut F, state: &mut OutputState, c: &hir::Condition)
   match *c {
     hir::Condition::Expr(ref e) => show_hir_expr(f, state, e),
     hir::Condition::Assignment(ref ty, ref name, ref initializer) => {
-      show_fully_specified_type(f, ty);
+      show_fully_specified_type(f, state, ty);
       let _ = f.write_str(" ");
       show_identifier(f, name);
       let _ = f.write_str(" = ");
@@ -1248,3 +1274,4 @@ pub fn show_translation_unit<F>(f: &mut F, state: &mut OutputState, tu: &hir::Tr
     show_external_declaration(f, state, ed);
   }
 }
+
