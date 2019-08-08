@@ -537,21 +537,6 @@ pub enum Statement {
 }
 
 impl Statement {
-    /// Create a case-label sequence of nested statements.
-    pub fn new_case<C, S>(
-        case: C,
-        statements: S
-    ) -> Self
-        where C: Into<CaseLabel>,
-              S: IntoIterator<Item = Statement> {
-        let case_stmt = Statement::Simple(Box::new(SimpleStatement::CaseLabel(case.into())));
-
-        Statement::Compound(
-            Box::new(CompoundStatement {
-                statement_list: once(case_stmt).chain(statements.into_iter()).collect()
-            })
-        )
-    }
 
     /// Declare a new variable.
     ///
@@ -593,7 +578,6 @@ pub enum SimpleStatement {
     Expression(ExprStatement),
     Selection(SelectionStatement),
     Switch(SwitchStatement),
-    CaseLabel(CaseLabel),
     Iteration(IterationStatement),
     Jump(JumpStatement)
 }
@@ -1114,6 +1098,10 @@ fn translate_switch(state: &mut State, s: &syntax::SwitchStatement) -> SwitchSta
         }
 
     }
+    match case.take() {
+        Some(case) => cases.push(case),
+        _ => {}
+    }
     SwitchStatement {
         head: Box::new(translate_expression(state, &s.head)),
         cases
@@ -1187,12 +1175,12 @@ fn translate_selection(state: &mut State, s: &syntax::SelectionStatement) -> Sel
 fn translate_simple_statement(state: &mut State, s: &syntax::SimpleStatement) -> SimpleStatement {
     match s {
         syntax::SimpleStatement::Declaration(d) => SimpleStatement::Declaration(translate_declaration(state, d)),
-        syntax::SimpleStatement::CaseLabel(c) => SimpleStatement::CaseLabel(translate_case(state, c)),
         syntax::SimpleStatement::Expression(e) => SimpleStatement::Expression(e.as_ref().map(|e| translate_expression(state, e))),
         syntax::SimpleStatement::Iteration(i) => SimpleStatement::Iteration(translate_iteration(state, i)),
         syntax::SimpleStatement::Selection(s) => SimpleStatement::Selection(translate_selection(state, s)),
         syntax::SimpleStatement::Jump(j) => SimpleStatement::Jump(translate_jump(state, j)),
-        syntax::SimpleStatement::Switch(s) => SimpleStatement::Switch(translate_switch(state, s))
+        syntax::SimpleStatement::Switch(s) => SimpleStatement::Switch(translate_switch(state, s)),
+        syntax::SimpleStatement::CaseLabel(s) => panic!("should be handled by translate_switch")
     }
 }
 

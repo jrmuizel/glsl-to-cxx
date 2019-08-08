@@ -255,7 +255,10 @@ Fragment brush_fs() {
   let mut output = String::new();
 
   let mut state = hir::State::new();
+  //println!("{:#?}", r);
   let hir = hir::ast_to_hir(&mut state, &r.unwrap());
+  //println!("{:#?}", hir);
+
   let mut state = OutputState { hir: state, indent: 0 };
 
   show_translation_unit(&mut output, &mut state, &hir);
@@ -290,7 +293,7 @@ pub fn show_type_specifier_non_array<F>(f: &mut F, t: &syntax::TypeSpecifierNonA
     syntax::TypeSpecifierNonArray::Bool => { let _ = f.write_str("bool"); }
     syntax::TypeSpecifierNonArray::Int => { let _ = f.write_str("int"); }
     syntax::TypeSpecifierNonArray::UInt => { let _ = f.write_str("uint"); }
-    syntax::TypeSpecifierNonArray::Float => { let _ = f.write_str("float"); }
+    syntax::TypeSpecifierNonArray::Float => { let _ = f.write_str("Float"); }
     syntax::TypeSpecifierNonArray::Double => { let _ = f.write_str("double"); }
     syntax::TypeSpecifierNonArray::Vec2 => { let _ = f.write_str("vec2"); }
     syntax::TypeSpecifierNonArray::Vec3 => { let _ = f.write_str("vec3"); }
@@ -1032,7 +1035,6 @@ pub fn show_simple_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::S
     hir::SimpleStatement::Expression(ref e) => show_expression_statement(f, state, e),
     hir::SimpleStatement::Selection(ref s) => show_selection_statement(f, state, s),
     hir::SimpleStatement::Switch(ref s) => show_switch_statement(f, state, s),
-    hir::SimpleStatement::CaseLabel(ref cl) => show_case_label(f, state, cl),
     hir::SimpleStatement::Iteration(ref i) => show_iteration_statement(f, state, i),
     hir::SimpleStatement::Jump(ref j) => show_jump_statement(f, state, j)
   }
