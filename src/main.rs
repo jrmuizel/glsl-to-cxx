@@ -263,7 +263,15 @@ Fragment brush_fs() {
   let hir = hir::ast_to_hir(&mut state, &r);
   //println!("{:#?}", hir);
 
-  let mut state = OutputState { hir: state, indent: 0, should_indent: false, output_cxx: false };
+  let mut state = OutputState { hir: state, indent: 0,
+    should_indent: false,
+    output_cxx: false,
+    in_loop_declaration: false,
+    mask: None,
+    return_type: None,
+    return_declared: false,
+    flat: false
+  };
 
   show_translation_unit(&mut output_glsl, &mut state, &hir);
 
@@ -286,6 +294,11 @@ pub struct OutputState {
   should_indent: bool,
   output_cxx: bool,
   indent: i32,
+  in_loop_declaration: bool,
+  mask: Option<Box<hir::Expr>>,
+  return_type: Option<Box<syntax::FullySpecifiedType>>,
+  return_declared: bool,
+  flat: bool
 }
 
 impl OutputState {
@@ -306,7 +319,14 @@ pub fn show_identifier<F>(f: &mut F, i: &syntax::Identifier) where F: Write {
 }
 
 pub fn show_sym<F>(f: &mut F, state: &mut OutputState, i: &hir::SymRef) where F: Write {
-  let _ = f.write_str(&state.hir.sym(*i).name);
+  let mut name = state.hir.sym(*i).name.as_str();
+  if state.output_cxx {
+    name = match name {
+      "int" => { "I32" }
+      _ => { name }
+    };
+  }
+  let _ = f.write_str(name);
 }
 
 pub fn show_type_name<F>(f: &mut F, t: &syntax::TypeName) where F: Write {
@@ -317,9 +337,19 @@ pub fn show_type_specifier_non_array<F>(f: &mut F, state: &mut OutputState, t: &
   match *t {
     syntax::TypeSpecifierNonArray::Void => { let _ = f.write_str("void"); }
     syntax::TypeSpecifierNonArray::Bool => { let _ = f.write_str("bool"); }
-    syntax::TypeSpecifierNonArray::Int => { let _ = f.write_str("int"); }
+    syntax::TypeSpecifierNonArray::Int => {
+      if state.output_cxx {
+        if state.in_loop_declaration || state.flat {
+          let _ = f.write_str("int");
+        } else {
+          let _ = f.write_str("I32");
+        }
+      } else {
+        let _ = f.write_str("int");
+      }
+    }
     syntax::TypeSpecifierNonArray::UInt => { let _ = f.write_str("uint"); }
-    syntax::TypeSpecifierNonArray::Float => { let _ = f.write_str("float"); }
+    syntax::TypeSpecifierNonArray::Float => { if state.output_cxx { let _ = f.write_str("Float"); } else { let _ = f.write_str("float"); } }
     syntax::TypeSpecifierNonArray::Double => { let _ = f.write_str("double"); }
     syntax::TypeSpecifierNonArray::Vec2 => { let _ = f.write_str("vec2"); }
     syntax::TypeSpecifierNonArray::Vec3 => { let _ = f.write_str("vec3"); }
@@ -442,8 +472,13 @@ pub fn show_type_specifier<F>(f: &mut F, state: &mut OutputState, t: &syntax::Ty
 }
 
 pub fn show_fully_specified_type<F>(f: &mut F, state: &mut OutputState, t: &syntax::FullySpecifiedType) where F: Write {
+  state.flat = false;
   if let Some(ref qual) = t.qualifier {
-    show_type_qualifier(f, &qual);
+    if !state.output_cxx {
+      show_type_qualifier(f, &qual);
+    } else {
+      state.flat = qual.qualifiers.0.iter().flat_map(|q| match q { syntax::TypeQualifierSpec::Interpolation(Flat) => Some(()), _ => None}).next().is_some();
+    }
     let _ = f.write_str(" ");
   }
 
@@ -660,11 +695,21 @@ pub fn show_hir_expr<F>(f: &mut F, state: &mut OutputState, expr: &hir::Expr) wh
       let _ = f.write_str(")");
     }
     hir::ExprKind::Ternary(ref c, ref s, ref e) => {
-      show_hir_expr(f, state, &c);
-      let _ = f.write_str(" ? ");
-      show_hir_expr(f, state, &s);
-      let _ = f.write_str(" : ");
-      show_hir_expr(f, state, &e);
+      if state.output_cxx {
+        let _ = f.write_str("if_then_else(");
+        show_hir_expr(f, state, &c);
+        let _ = f.write_str(", ");
+        show_hir_expr(f, state, &s);
+        let _ = f.write_str(", ");
+        show_hir_expr(f, state, &e);
+        let _ = f.write_str(")");
+      } else {
+        show_hir_expr(f, state, &c);
+        let _ = f.write_str(" ? ");
+        show_hir_expr(f, state, &s);
+        let _ = f.write_str(" : ");
+        show_hir_expr(f, state, &e);
+      }
     }
     hir::ExprKind::Assignment(ref v, ref op, ref e) => {
       show_hir_expr(f, state, &v);
@@ -1031,7 +1076,10 @@ pub fn show_block<F>(f: &mut F, state: &mut OutputState, b: &hir::Block) where F
 pub fn show_function_definition<F>(f: &mut F, state: &mut OutputState, fd: &hir::FunctionDefinition) where F: Write {
   show_function_prototype(f, state, &fd.prototype);
   let _ = f.write_str(" ");
+  state.return_type = Some(Box::new(fd.prototype.ty.clone()));
   show_compound_statement(f, state, &fd.statement);
+  state.return_type = None;
+  state.return_declared = false;
 }
 
 pub fn show_compound_statement<F>(f: &mut F, state: &mut OutputState, cst: &hir::CompoundStatement) where F: Write {
@@ -1083,21 +1131,34 @@ pub fn show_expression_statement<F>(f: &mut F, state: &mut OutputState, est: &hi
 }
 
 pub fn show_selection_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SelectionStatement) where F: Write {
-  show_indent(f, state);
-  let _ = f.write_str("if (");
-  show_hir_expr(f, state, &sst.cond);
-  let _= f.write_str(") {\n");
-  show_selection_rest_statement(f, state, &sst.rest);
+  if state.output_cxx {
+    state.mask = Some(sst.cond.clone());
+    show_selection_rest_statement(f, state, &sst.rest);
+    state.mask = None;
+  } else {
+    show_indent(f, state);
+    let _ = f.write_str("if (");
+    show_hir_expr(f, state, &sst.cond);
+    let _ = f.write_str(") {\n");
+    state.indent();
+    show_selection_rest_statement(f, state, &sst.rest);
+  }
 }
 
 pub fn show_selection_rest_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SelectionRestStatement) where F: Write {
   match *sst {
     hir::SelectionRestStatement::Statement(ref if_st) => {
       show_statement(f, state, if_st);
-      let _ = f.write_str("}\n");
+      if !state.output_cxx {
+        state.outdent();
+        show_indent(f, state);
+        let _ = f.write_str("}\n");
+      }
     }
     hir::SelectionRestStatement::Else(ref if_st, ref else_st) => {
       show_statement(f, state, if_st);
+      state.outdent();
+      show_indent(f, state);
       let _ = f.write_str("} else ");
       show_statement(f, state, else_st);
     }
@@ -1183,7 +1244,12 @@ pub fn show_for_init_statement<F>(f: &mut F, state: &mut OutputState, i: &hir::F
         show_hir_expr(f, state, e);
       }
     }
-    hir::ForInitStatement::Declaration(ref d) => show_declaration(f, state, d)
+    hir::ForInitStatement::Declaration(ref d) => {
+      state.in_loop_declaration = true;
+      show_declaration(f, state, d);
+      state.in_loop_declaration = false;
+
+    }
   }
 }
 
@@ -1206,9 +1272,40 @@ pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpS
     hir::JumpStatement::Break => { let _ = f.write_str("break;\n"); }
     hir::JumpStatement::Discard => { let _ = f.write_str("discard;\n"); }
     hir::JumpStatement::Return(ref e) => {
-      let _ = f.write_str("return ");
-      show_hir_expr(f, state, e);
-      let _ = f.write_str(";\n");
+      if state.output_cxx {
+        if state.mask.is_some() {
+          if !state.return_declared {
+            f.write_str("I32 ret_mask = ~0;\n");
+            // XXX: the cloning here is bad
+            show_fully_specified_type(f, state, &state.return_type.clone().unwrap());
+            f.write_str(" ret;\n");
+            state.return_declared = true;
+          }
+          // XXX: the cloning here is bad
+          let _ = f.write_str("ret = if_then_else(ret_mask & (");
+          show_hir_expr(f, state, &state.mask.clone().unwrap());
+          let _ = f.write_str("), ");
+          show_hir_expr(f, state, e);
+          let _ = f.write_str(", ret);\n");
+          let _ = f.write_str("ret_mask &= ~(");
+          show_hir_expr(f, state, &state.mask.clone().unwrap());
+          let _ = f.write_str(");\n");
+        } else {
+          if state.return_declared {
+            let _  = f.write_str("return if_then_else(ret_mask, ");
+            show_hir_expr(f, state, e);
+            let _  = f.write_str(", ret);\n");
+          } else {
+            let _ = f.write_str("return ");
+            show_hir_expr(f, state, e);
+            let _ = f.write_str(";\n");
+          }
+        }
+      } else {
+        let _ = f.write_str("return ");
+        show_hir_expr(f, state, e);
+        let _ = f.write_str(";\n");
+      }
     }
   }
 }

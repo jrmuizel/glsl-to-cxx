@@ -1284,6 +1284,8 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
                      vec![Type::var(Vec2), Type::var(Float)]);
     declare_function(state, "vec4", Type::var(Vec4),
                      vec![Type::var(Vec3), Type::var(Float)]);
+    declare_function(state, "vec4", Type::var(Vec4),
+                     vec![Type::var(Float), Type::var(Float), Type::var(Float), Type::var(Float)]);
     declare_function(state, "vec2", Type::var(Vec2),
                      vec![Type::var(Float)]);
     declare_function(state, "mix", Type::var(Vec3),
@@ -1334,6 +1336,7 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
     declare_function(state, "texture", Type::var(Vec4),
                      vec![Type::var(Sampler2D), Type::var(Vec3)]);
     state.declare("gl_FragCoord", Type::var(Vec4));
+    state.declare("gl_FragColor", Type::var(Vec4));
 
     TranslationUnit(tu.0.map(state, translate_external_declaration))
 }
