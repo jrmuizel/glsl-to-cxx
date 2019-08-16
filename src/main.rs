@@ -313,6 +313,7 @@ impl OutputState {
 use std::fmt::Write;
 
 use glsl::syntax;
+use crate::hir::{SwitchStatement, SwizzleSelector};
 
 pub fn show_identifier<F>(f: &mut F, i: &syntax::Identifier) where F: Write {
   let _ = f.write_str(&i.0);
@@ -671,6 +672,25 @@ pub fn show_double<F>(f: &mut F, x: f64) where F: Write {
   }
 }
 
+trait SwizzelSelectorExt {
+  fn to_args(&self) -> String;
+}
+
+impl SwizzelSelectorExt for SwizzleSelector {
+  fn to_args(&self) -> String {
+    let mut s = Vec::new();
+    let fs = match self.field_set {
+      hir::FieldSet::Rgba => ["R", "G", "B", "A"],
+      hir::FieldSet::Xyzw => ["X", "Y", "Z", "W"],
+      hir::FieldSet::Stpq => ["S", "T", "P", "Q"],
+    };
+    for i in &self.components {
+      s.push(fs[*i as usize])
+    }
+    s.join(", ")
+  }
+}
+
 pub fn show_hir_expr<F>(f: &mut F, state: &mut OutputState, expr: &hir::Expr) where F: Write {
   match expr.kind {
     hir::ExprKind::Variable(ref i) => show_sym(f, state, i),
@@ -1022,7 +1042,7 @@ pub fn show_single_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::S
 
   if let Some(ref name) = d.name {
     let _ = f.write_str(" ");
-    show_identifier(f, name);
+    show_sym(f, state, name);
   }
 
   if let Some(ref arr_spec) = d.array_specifier {
