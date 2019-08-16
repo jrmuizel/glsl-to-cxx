@@ -300,6 +300,19 @@ impl SwizzleSelector {
         }
         s
     }
+
+    pub fn to_args(&self) -> String {
+        let mut s = Vec::new();
+        let fs = match self.field_set {
+            FieldSet::Rgba => ["R","G","B","A"],
+            FieldSet::Xyzw => ["X","Y","Z","W"],
+            FieldSet::Stpq => ["S","T","P","Q"],
+        };
+        for i in &self.components {
+            s.push(fs[*i as usize])
+        }
+        s.join(", ")
+    }
 }
 
 /// The most general form of an expression. As you can see if you read the variant list, in GLSL, an

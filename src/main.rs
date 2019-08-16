@@ -747,11 +747,19 @@ pub fn show_hir_expr<F>(f: &mut F, state: &mut OutputState, expr: &hir::Expr) wh
       show_identifier(f, i);
     }
     hir::ExprKind::SwizzleSelector(ref e, ref s) => {
-      let _ = f.write_str("(");
-      show_hir_expr(f, state, &e);
-      let _ = f.write_str(")");
-      let _ = f.write_str(".");
-      let _ = f.write_str(&s.to_string());
+      if state.output_cxx {
+        let _ = f.write_str("(");
+        show_hir_expr(f, state, &e);
+        let _ = f.write_str(").sel(");
+        let _ = f.write_str(&s.to_args());
+        let _ = f.write_str(")");
+      } else {
+        let _ = f.write_str("(");
+        show_hir_expr(f, state, &e);
+        let _ = f.write_str(")");
+        let _ = f.write_str(".");
+        let _ = f.write_str(&s.to_string());
+      }
     }
     hir::ExprKind::PostInc(ref e) => {
       show_hir_expr(f, state, &e);
