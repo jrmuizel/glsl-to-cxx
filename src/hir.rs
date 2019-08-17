@@ -1,4 +1,3 @@
-use std::fmt;
 use std::iter::{FromIterator, once};
 use std::ops::{Deref, DerefMut};
 use std::collections::HashMap;
@@ -105,31 +104,6 @@ impl State {
         self.scopes.pop();
     }
 }
-
-
-
-
-/// Error that might occur when creating a new [`Identifier`].
-#[derive(Debug)]
-pub enum IdentifierError {
-    StartsWithDigit,
-    ContainsNonASCIIAlphaNum
-}
-
-impl fmt::Display for IdentifierError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match *self {
-            IdentifierError::StartsWithDigit =>
-                f.write_str("starts starts with a digit"),
-
-            IdentifierError::ContainsNonASCIIAlphaNum =>
-                f.write_str("contains at least one non-alphanumeric ASCII character")
-        }
-    }
-}
-
-
-
 
 /// A declaration.
 #[derive(Clone, Debug, PartialEq)]
