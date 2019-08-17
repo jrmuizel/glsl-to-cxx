@@ -6,6 +6,7 @@ use glsl::syntax::TranslationUnit;
 mod hir;
 
 use hir::State;
+use hir::FullySpecifiedType;
 
 fn main() {
   let r = TranslationUnit::parse("
@@ -296,7 +297,7 @@ pub struct OutputState {
   indent: i32,
   in_loop_declaration: bool,
   mask: Option<Box<hir::Expr>>,
-  return_type: Option<Box<syntax::FullySpecifiedType>>,
+  return_type: Option<Box<hir::FullySpecifiedType>>,
   return_declared: bool,
   flat: bool
 }
@@ -472,7 +473,7 @@ pub fn show_type_specifier<F>(f: &mut F, state: &mut OutputState, t: &syntax::Ty
   }
 }
 
-pub fn show_fully_specified_type<F>(f: &mut F, state: &mut OutputState, t: &syntax::FullySpecifiedType) where F: Write {
+pub fn show_fully_specified_type<F>(f: &mut F, state: &mut OutputState, t: &FullySpecifiedType) where F: Write {
   state.flat = false;
   if let Some(ref qual) = t.qualifier {
     if !state.output_cxx {
