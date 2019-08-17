@@ -779,7 +779,7 @@ fn translate_single_declaration(state: &mut State, d: &syntax::SingleDeclaration
         }
     };
     SingleDeclaration {
-        name: Some(sym),
+        name: d.name.as_ref().and(Some(sym)),
         ty,
         array_specifier: d.array_specifier.clone(),
         initializer: d.initializer.as_ref().map(|x| translate_initializater(state, x)),
