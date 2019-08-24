@@ -21,7 +21,7 @@ use crate::hir::SimpleStatement::Jump;
 #[derive(Debug)]
 pub struct Symbol {
     pub name: String,
-    ty: SymDecl
+    pub decl: SymDecl
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -126,9 +126,9 @@ impl State {
         return None;
     }
 
-    fn declare(&mut self, name: &str, ty: SymDecl) -> SymRef {
+    fn declare(&mut self, name: &str, decl: SymDecl) -> SymRef {
         let s = SymRef(self.syms.len() as u32);
-        self.syms.push(Symbol{ name: name.into(), ty});
+        self.syms.push(Symbol{ name: name.into(), decl});
         self.scopes.last_mut().unwrap().names.insert(name.into(), s);
         s
     }
@@ -894,7 +894,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                 Some(sym) => sym,
                 None => panic!("missing declaration {}", i.as_str())
             };
-            let ty = match &state.sym(sym).ty {
+            let ty = match &state.sym(sym).decl {
                 SymDecl::Variable(_, ty) => ty.ty.clone(),
                 _ => panic!("bad variable type")
             };
@@ -954,7 +954,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                                 Some(s) => s,
                                 None => panic!("missing {}", i.as_str())
                             };
-                            match &state.sym(sym).ty {
+                            match &state.sym(sym).decl {
                                 SymDecl::Function(fn_ty) => {
                                     let mut ret = None;
                                     for sig in &fn_ty.signatures {
@@ -1248,7 +1248,7 @@ fn translate_external_declaration(state: &mut State, ed: &syntax::ExternalDeclar
 fn declare_function(state: &mut State, name: &str, ret: TypeSpecifier, params: Vec<TypeSpecifier>) {
     let sig = FunctionSignature{ ret: Box::new(ret), params };
     match state.lookup_sym_mut(name) {
-        Some(Symbol { ty: SymDecl::Function(f), ..}) => f.signatures.push(sig),
+        Some(Symbol { decl: SymDecl::Function(f), ..}) => f.signatures.push(sig),
         None => { state.declare(name, SymDecl::Function(FunctionType{ signatures: NonEmpty::new(sig)})); },
         _ => panic!("overloaded function name {}", name)
     }
