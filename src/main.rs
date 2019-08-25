@@ -6,7 +6,7 @@ use glsl::syntax::TranslationUnit;
 mod hir;
 
 use hir::State;
-use hir::FullySpecifiedType;
+use hir::Type;
 
 fn main() {
   let r = TranslationUnit::parse("
@@ -297,7 +297,7 @@ pub struct OutputState {
   indent: i32,
   in_loop_declaration: bool,
   mask: Option<Box<hir::Expr>>,
-  return_type: Option<Box<hir::FullySpecifiedType>>,
+  return_type: Option<Box<hir::Type>>,
   return_declared: bool,
   flat: bool
 }
@@ -320,15 +320,52 @@ pub fn show_identifier<F>(f: &mut F, i: &syntax::Identifier) where F: Write {
   let _ = f.write_str(&i.0);
 }
 
-pub fn show_sym<F>(f: &mut F, state: &mut OutputState, i: &hir::SymRef) where F: Write {
-  let mut name = state.hir.sym(*i).name.as_str();
-  if state.output_cxx {
-    name = match name {
-      "int" => { "I32" }
-      _ => { name }
-    };
+pub fn show_sym<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Write {
+  let sym = state.hir.sym(*i);
+  match &sym.decl {
+    hir::SymDecl::Variable(..) | hir::SymDecl::Function(..) | hir::SymDecl::Struct(..) => {
+      let mut name = sym.name.as_str();
+      if state.output_cxx {
+        name = match name {
+          "int" => { "I32" }
+          _ => { name }
+        };
+      }
+      let _ = f.write_str(name);
+    }
+    _ => panic!()
   }
-  let _ = f.write_str(name);
+}
+
+pub fn show_sym_decl<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Write {
+  let sym = state.hir.sym(*i);
+  match &sym.decl {
+    hir::SymDecl::Variable(..) => {
+      let mut name = sym.name.as_str();
+      if state.output_cxx {
+        name = match name {
+          "int" => { "I32" }
+          _ => { name }
+        };
+      }
+      let _ = f.write_str(name);
+    }
+    hir::SymDecl::Struct(s) => {
+      let _ = f.write_str("struct ");
+
+      let mut name = sym.name.as_str();
+      let _ = write!(f, "{} ", name);
+
+      let _ = f.write_str("{\n");
+
+      for field in &s.fields {
+        show_struct_field(f, state, field);
+      }
+
+      let _ = f.write_str("}");
+    }
+    _ => panic!()
+  }
 }
 
 pub fn show_type_name<F>(f: &mut F, t: &syntax::TypeName) where F: Write {
@@ -460,8 +497,137 @@ pub fn show_type_specifier_non_array<F>(f: &mut F, state: &mut OutputState, t: &
     syntax::TypeSpecifierNonArray::UImage2DMSArray => { let _ = f.write_str("uimage2DMSArray"); }
     syntax::TypeSpecifierNonArray::USamplerCubeArray => { let _ = f.write_str("usamplerCubeArray"); }
     syntax::TypeSpecifierNonArray::UImageCubeArray => { let _ = f.write_str("uimageCubeArray"); }
-    syntax::TypeSpecifierNonArray::Struct(ref s) => show_struct_non_declaration(f, state, s),
+    syntax::TypeSpecifierNonArray::Struct(ref s) => panic!(),//show_struct_non_declaration(f, state, s),
     syntax::TypeSpecifierNonArray::TypeName(ref tn) => show_type_name(f, tn)
+  }
+}
+
+pub fn show_type_kind<F>(f: &mut F, state: &OutputState, t: &hir::TypeKind) where F: Write {
+  match *t {
+    hir::TypeKind::Void => { let _ = f.write_str("void"); }
+    hir::TypeKind::Bool => { let _ = f.write_str("bool"); }
+    hir::TypeKind::Int => {
+      if state.output_cxx {
+        if state.in_loop_declaration || state.flat {
+          let _ = f.write_str("int");
+        } else {
+          let _ = f.write_str("I32");
+        }
+      } else {
+        let _ = f.write_str("int");
+      }
+    }
+    hir::TypeKind::UInt => { let _ = f.write_str("uint"); }
+    hir::TypeKind::Float => { if state.output_cxx { let _ = f.write_str("Float"); } else { let _ = f.write_str("float"); } }
+    hir::TypeKind::Double => { let _ = f.write_str("double"); }
+    hir::TypeKind::Vec2 => { let _ = f.write_str("vec2"); }
+    hir::TypeKind::Vec3 => { let _ = f.write_str("vec3"); }
+    hir::TypeKind::Vec4 => { let _ = f.write_str("vec4"); }
+    hir::TypeKind::DVec2 => { let _ = f.write_str("dvec2"); }
+    hir::TypeKind::DVec3 => { let _ = f.write_str("dvec3"); }
+    hir::TypeKind::DVec4 => { let _ = f.write_str("dvec4"); }
+    hir::TypeKind::BVec2 => { let _ = f.write_str("bvec2"); }
+    hir::TypeKind::BVec3 => { let _ = f.write_str("bvec3"); }
+    hir::TypeKind::BVec4 => { let _ = f.write_str("bvec4"); }
+    hir::TypeKind::IVec2 => { let _ = f.write_str("ivec2"); }
+    hir::TypeKind::IVec3 => { let _ = f.write_str("ivec3"); }
+    hir::TypeKind::IVec4 => { let _ = f.write_str("ivec4"); }
+    hir::TypeKind::UVec2 => { let _ = f.write_str("uvec2"); }
+    hir::TypeKind::UVec3 => { let _ = f.write_str("uvec3"); }
+    hir::TypeKind::UVec4 => { let _ = f.write_str("uvec4"); }
+    hir::TypeKind::Mat2 => { let _ = f.write_str("mat2"); }
+    hir::TypeKind::Mat3 => { let _ = f.write_str("mat3"); }
+    hir::TypeKind::Mat4 => { let _ = f.write_str("mat4"); }
+    hir::TypeKind::Mat23 => { let _ = f.write_str("mat23"); }
+    hir::TypeKind::Mat24 => { let _ = f.write_str("mat24"); }
+    hir::TypeKind::Mat32 => { let _ = f.write_str("mat32"); }
+    hir::TypeKind::Mat34 => { let _ = f.write_str("mat34"); }
+    hir::TypeKind::Mat42 => { let _ = f.write_str("mat42"); }
+    hir::TypeKind::Mat43 => { let _ = f.write_str("mat43"); }
+    hir::TypeKind::DMat2 => { let _ = f.write_str("dmat2"); }
+    hir::TypeKind::DMat3 => { let _ = f.write_str("dmat3"); }
+    hir::TypeKind::DMat4 => { let _ = f.write_str("dmat4"); }
+    hir::TypeKind::DMat23 => { let _ = f.write_str("dmat23"); }
+    hir::TypeKind::DMat24 => { let _ = f.write_str("dmat24"); }
+    hir::TypeKind::DMat32 => { let _ = f.write_str("dmat32"); }
+    hir::TypeKind::DMat34 => { let _ = f.write_str("dmat34"); }
+    hir::TypeKind::DMat42 => { let _ = f.write_str("dmat42"); }
+    hir::TypeKind::DMat43 => { let _ = f.write_str("dmat43"); }
+    hir::TypeKind::Sampler1D => { let _ = f.write_str("sampler1D"); }
+    hir::TypeKind::Image1D => { let _ = f.write_str("image1D"); }
+    hir::TypeKind::Sampler2D => { let _ = f.write_str("sampler2D"); }
+    hir::TypeKind::Image2D => { let _ = f.write_str("image2D"); }
+    hir::TypeKind::Sampler3D => { let _ = f.write_str("sampler3D"); }
+    hir::TypeKind::Image3D => { let _ = f.write_str("image3D"); }
+    hir::TypeKind::SamplerCube => { let _ = f.write_str("samplerCube"); }
+    hir::TypeKind::ImageCube => { let _ = f.write_str("imageCube"); }
+    hir::TypeKind::Sampler2DRect => { let _ = f.write_str("sampler2DRect"); }
+    hir::TypeKind::Image2DRect => { let _ = f.write_str("image2DRect"); }
+    hir::TypeKind::Sampler1DArray => { let _ = f.write_str("sampler1DArray"); }
+    hir::TypeKind::Image1DArray => { let _ = f.write_str("image1DArray"); }
+    hir::TypeKind::Sampler2DArray => { let _ = f.write_str("sampler2DArray"); }
+    hir::TypeKind::Image2DArray => { let _ = f.write_str("image2DArray"); }
+    hir::TypeKind::SamplerBuffer => { let _ = f.write_str("samplerBuffer"); }
+    hir::TypeKind::ImageBuffer => { let _ = f.write_str("imageBuffer"); }
+    hir::TypeKind::Sampler2DMS => { let _ = f.write_str("sampler2DMS"); }
+    hir::TypeKind::Image2DMS => { let _ = f.write_str("image2DMS"); }
+    hir::TypeKind::Sampler2DMSArray => { let _ = f.write_str("sampler2DMSArray"); }
+    hir::TypeKind::Image2DMSArray => { let _ = f.write_str("image2DMSArray"); }
+    hir::TypeKind::SamplerCubeArray => { let _ = f.write_str("samplerCubeArray"); }
+    hir::TypeKind::ImageCubeArray => { let _ = f.write_str("imageCubeArray"); }
+    hir::TypeKind::Sampler1DShadow => { let _ = f.write_str("sampler1DShadow"); }
+    hir::TypeKind::Sampler2DShadow => { let _ = f.write_str("sampler2DShadow"); }
+    hir::TypeKind::Sampler2DRectShadow => { let _ = f.write_str("sampler2DRectShadow"); }
+    hir::TypeKind::Sampler1DArrayShadow => { let _ = f.write_str("sampler1DArrayShadow"); }
+    hir::TypeKind::Sampler2DArrayShadow => { let _ = f.write_str("sampler2DArrayShadow"); }
+    hir::TypeKind::SamplerCubeShadow => { let _ = f.write_str("samplerCubeShadow"); }
+    hir::TypeKind::SamplerCubeArrayShadow => { let _ = f.write_str("samplerCubeArrayShadow"); }
+    hir::TypeKind::ISampler1D => { let _ = f.write_str("isampler1D"); }
+    hir::TypeKind::IImage1D => { let _ = f.write_str("iimage1D"); }
+    hir::TypeKind::ISampler2D => { let _ = f.write_str("isampler2D"); }
+    hir::TypeKind::IImage2D => { let _ = f.write_str("iimage2D"); }
+    hir::TypeKind::ISampler3D => { let _ = f.write_str("isampler3D"); }
+    hir::TypeKind::IImage3D => { let _ = f.write_str("iimage3D"); }
+    hir::TypeKind::ISamplerCube => { let _ = f.write_str("isamplerCube"); }
+    hir::TypeKind::IImageCube => { let _ = f.write_str("iimageCube"); }
+    hir::TypeKind::ISampler2DRect => { let _ = f.write_str("isampler2DRect"); }
+    hir::TypeKind::IImage2DRect => { let _ = f.write_str("iimage2DRect"); }
+    hir::TypeKind::ISampler1DArray => { let _ = f.write_str("isampler1DArray"); }
+    hir::TypeKind::IImage1DArray => { let _ = f.write_str("iimage1DArray"); }
+    hir::TypeKind::ISampler2DArray => { let _ = f.write_str("isampler2DArray"); }
+    hir::TypeKind::IImage2DArray => { let _ = f.write_str("iimage2DArray"); }
+    hir::TypeKind::ISamplerBuffer => { let _ = f.write_str("isamplerBuffer"); }
+    hir::TypeKind::IImageBuffer => { let _ = f.write_str("iimageBuffer"); }
+    hir::TypeKind::ISampler2DMS => { let _ = f.write_str("isampler2MS"); }
+    hir::TypeKind::IImage2DMS => { let _ = f.write_str("iimage2DMS"); }
+    hir::TypeKind::ISampler2DMSArray => { let _ = f.write_str("isampler2DMSArray"); }
+    hir::TypeKind::IImage2DMSArray => { let _ = f.write_str("iimage2DMSArray"); }
+    hir::TypeKind::ISamplerCubeArray => { let _ = f.write_str("isamplerCubeArray"); }
+    hir::TypeKind::IImageCubeArray => { let _ = f.write_str("iimageCubeArray"); }
+    hir::TypeKind::AtomicUInt => { let _ = f.write_str("atomic_uint"); }
+    hir::TypeKind::USampler1D => { let _ = f.write_str("usampler1D"); }
+    hir::TypeKind::UImage1D => { let _ = f.write_str("uimage1D"); }
+    hir::TypeKind::USampler2D => { let _ = f.write_str("usampler2D"); }
+    hir::TypeKind::UImage2D => { let _ = f.write_str("uimage2D"); }
+    hir::TypeKind::USampler3D => { let _ = f.write_str("usampler3D"); }
+    hir::TypeKind::UImage3D => { let _ = f.write_str("uimage3D"); }
+    hir::TypeKind::USamplerCube => { let _ = f.write_str("usamplerCube"); }
+    hir::TypeKind::UImageCube => { let _ = f.write_str("uimageCube"); }
+    hir::TypeKind::USampler2DRect => { let _ = f.write_str("usampler2DRect"); }
+    hir::TypeKind::UImage2DRect => { let _ = f.write_str("uimage2DRect"); }
+    hir::TypeKind::USampler1DArray => { let _ = f.write_str("usampler1DArray"); }
+    hir::TypeKind::UImage1DArray => { let _ = f.write_str("uimage1DArray"); }
+    hir::TypeKind::USampler2DArray => { let _ = f.write_str("usampler2DArray"); }
+    hir::TypeKind::UImage2DArray => { let _ = f.write_str("uimage2DArray"); }
+    hir::TypeKind::USamplerBuffer => { let _ = f.write_str("usamplerBuffer"); }
+    hir::TypeKind::UImageBuffer => { let _ = f.write_str("uimageBuffer"); }
+    hir::TypeKind::USampler2DMS => { let _ = f.write_str("usampler2DMS"); }
+    hir::TypeKind::UImage2DMS => { let _ = f.write_str("uimage2DMS"); }
+    hir::TypeKind::USampler2DMSArray => { let _ = f.write_str("usamplerDMSArray"); }
+    hir::TypeKind::UImage2DMSArray => { let _ = f.write_str("uimage2DMSArray"); }
+    hir::TypeKind::USamplerCubeArray => { let _ = f.write_str("usamplerCubeArray"); }
+    hir::TypeKind::UImageCubeArray => { let _ = f.write_str("uimageCubeArray"); }
+    hir::TypeKind::Struct(ref s) => { let _ = f.write_str(state.hir.sym(*s).name.as_str()); } ,
   }
 }
 
@@ -473,7 +639,21 @@ pub fn show_type_specifier<F>(f: &mut F, state: &mut OutputState, t: &syntax::Ty
   }
 }
 
-pub fn show_fully_specified_type<F>(f: &mut F, state: &mut OutputState, t: &FullySpecifiedType) where F: Write {
+pub fn show_type<F>(f: &mut F, state: &OutputState, t: &Type) where F: Write {
+
+  if let Some(ref precision) = t.precision {
+    show_precision_qualifier(f, precision);
+    let _ = f.write_str(" ");
+  }
+
+  show_type_kind(f, state, &t.kind);
+
+  /*if let Some(ref arr_spec) = t.array_sizes {
+    panic!();
+  }*/
+}
+
+/*pub fn show_fully_specified_type<F>(f: &mut F, state: &mut OutputState, t: &FullySpecifiedType) where F: Write {
   state.flat = false;
   if let Some(ref qual) = t.qualifier {
     if !state.output_cxx {
@@ -485,9 +665,9 @@ pub fn show_fully_specified_type<F>(f: &mut F, state: &mut OutputState, t: &Full
   }
 
   show_type_specifier(f, state, &t.ty);
-}
+}*/
 
-pub fn show_struct_non_declaration<F>(f: &mut F, state: &mut OutputState, s: &syntax::StructSpecifier) where F: Write {
+/*pub fn show_struct_non_declaration<F>(f: &mut F, state: &mut OutputState, s: &syntax::StructSpecifier) where F: Write {
   let _ = f.write_str("struct ");
 
   if let Some(ref name) = s.name {
@@ -501,33 +681,18 @@ pub fn show_struct_non_declaration<F>(f: &mut F, state: &mut OutputState, s: &sy
   }
 
   let _ = f.write_str("}");
-}
+}*/
 
 pub fn show_struct<F>(f: &mut F, state: &mut OutputState, s: &syntax::StructSpecifier) where F: Write {
-  show_struct_non_declaration(f, state, s);
+  panic!();//show_struct_non_declaration(f, state, s);
   let _ = f.write_str(";\n");
 }
 
-pub fn show_struct_field<F>(f: &mut F, state: &mut OutputState, field: &syntax::StructFieldSpecifier) where F: Write {
-  if let Some(ref qual) = field.qualifier {
-    show_type_qualifier(f, &qual);
-    let _ = f.write_str(" ");
-  }
-
-  show_type_specifier(f, state, &field.ty);
+pub fn show_struct_field<F>(f: &mut F, state: &OutputState, field: &hir::StructField) where F: Write {
+  show_type(f, state, &field.ty);
   let _ = f.write_str(" ");
 
-  // there’s at least one identifier
-  let mut identifiers = field.identifiers.0.iter();
-  let identifier = identifiers.next().unwrap();
-
-  show_arrayed_identifier(f, identifier);
-
-  // write the rest of the identifiers
-  for identifier in identifiers {
-    let _ = f.write_str(", ");
-    show_arrayed_identifier(f, identifier);
-  }
+  show_arrayed_identifier(f, state, &field.name, &field.ty);
 
   let _ = f.write_str(";\n");
 }
@@ -543,12 +708,31 @@ pub fn show_array_spec<F>(f: &mut F, a: &syntax::ArraySpecifier) where F: Write 
   }
 }
 
-pub fn show_arrayed_identifier<F>(f: &mut F, a: &syntax::ArrayedIdentifier) where F: Write {
-  let _ = write!(f, "{}", a.ident);
+pub fn show_arrayed_identifier<F>(f: &mut F, state: &OutputState, ident: &syntax::Identifier, ty: &hir::Type) where F: Write {
+  let _ = write!(f, "{}", ident);
 
-  if let Some(ref arr_spec) = a.array_spec {
-    show_array_spec(f, arr_spec);
+  if let Some(ref arr_spec) = ty.array_sizes {
+    show_array_sizes(f, state, &arr_spec);
   }
+}
+
+pub fn show_array_sizes<F>(f: &mut F, state: &OutputState, a: &hir::ArraySizes) where F: Write {
+  let _ = f.write_str("[");
+  match &a.sizes[..] {
+    [a] => show_hir_expr(f, state, a),
+    _ => panic!()
+  }
+
+  let _ = f.write_str("]");
+  /*
+  match *a {
+    syntax::ArraySpecifier::Unsized => { let _ = f.write_str("[]"); }
+    syntax::ArraySpecifier::ExplicitlySized(ref e) => {
+      let _ = f.write_str("[");
+      show_expr(f, &e);
+      let _ = f.write_str("]");
+    }
+  }*/
 }
 
 pub fn show_type_qualifier<F>(f: &mut F, q: &syntax::TypeQualifier) where F: Write {
@@ -692,7 +876,7 @@ impl SwizzelSelectorExt for SwizzleSelector {
   }
 }
 
-pub fn show_hir_expr<F>(f: &mut F, state: &mut OutputState, expr: &hir::Expr) where F: Write {
+pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where F: Write {
   match expr.kind {
     hir::ExprKind::Variable(ref i) => show_sym(f, state, i),
     hir::ExprKind::IntConst(ref x) => { let _ = write!(f, "{}", x); }
@@ -739,9 +923,11 @@ pub fn show_hir_expr<F>(f: &mut F, state: &mut OutputState, expr: &hir::Expr) wh
       let _ = f.write_str(" ");
       show_hir_expr(f, state, &e);
     }
-    hir::ExprKind::Bracket(ref e, ref a) => {
+    hir::ExprKind::Bracket(ref e, ref indx) => {
       show_hir_expr(f, state, &e);
-      show_array_spec(f, &a);
+      let _ = f.write_str("[");
+      show_hir_expr(f, state, indx);
+      let _ = f.write_str("]");
     }
     hir::ExprKind::FunCall(ref fun, ref args) => {
       show_hir_function_identifier(f, state, &fun);
@@ -937,7 +1123,7 @@ pub fn show_function_identifier<F>(f: &mut F, i: &syntax::FunIdentifier) where F
   }
 }
 
-pub fn show_hir_function_identifier<F>(f: &mut F, state: &mut OutputState, i: &hir::FunIdentifier) where F: Write {
+pub fn show_hir_function_identifier<F>(f: &mut F, state: &OutputState, i: &hir::FunIdentifier) where F: Write {
   match *i {
     hir::FunIdentifier::Identifier(ref n) => show_sym(f, state, n),
     hir::FunIdentifier::Expr(ref e) => show_hir_expr(f, state, &*e)
@@ -983,7 +1169,7 @@ pub fn show_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::Declarat
 }
 
 pub fn show_function_prototype<F>(f: &mut F, state: &mut OutputState, fp: &hir::FunctionPrototype) where F: Write {
-  show_fully_specified_type(f, state, &fp.ty);
+  show_type(f, state, &fp.ty);
   let _ = f.write_str(" ");
   show_identifier(f, &fp.name);
 
@@ -1024,9 +1210,9 @@ pub fn show_function_parameter_declaration<F>(f: &mut F, state: &mut OutputState
 }
 
 pub fn show_function_parameter_declarator<F>(f: &mut F, state: &mut OutputState, p: &hir::FunctionParameterDeclarator) where F: Write {
-  show_type_specifier(f, state, &p.ty);
+  show_type(f, state, &p.ty);
   let _ = f.write_str(" ");
-  show_arrayed_identifier(f, &p.ident);
+  show_arrayed_identifier(f, state, &p.ident, &p.ty);
 }
 
 pub fn show_init_declarator_list<F>(f: &mut F, state: &mut OutputState, i: &hir::InitDeclaratorList) where F: Write {
@@ -1039,25 +1225,43 @@ pub fn show_init_declarator_list<F>(f: &mut F, state: &mut OutputState, i: &hir:
 }
 
 pub fn show_single_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclaration) where F: Write {
-  show_fully_specified_type(f, state, &d.ty);
-
-  if let Some(ref name) = d.name {
+  state.flat = false;
+  if let Some(ref qual) = d.qualifier {
+    if !state.output_cxx {
+      show_type_qualifier(f, &qual);
+    } else {
+      state.flat = qual.qualifiers.0.iter().flat_map(|q| match q { syntax::TypeQualifierSpec::Interpolation(Flat) => Some(()), _ => None}).next().is_some();
+    }
     let _ = f.write_str(" ");
-    show_sym(f, state, name);
   }
 
-  if let Some(ref arr_spec) = d.array_specifier {
-    show_array_spec(f, arr_spec);
-  }
+  // XXX: this is pretty grotty
+  match d.ty.kind {
+    hir::TypeKind::Struct(s) => {
+      show_sym_decl(f, state, &s);
+    }
+    _ => {
+      show_type(f, state, &d.ty);
 
-  if let Some(ref initializer) = d.initializer {
-    let _ = f.write_str(" = ");
-    show_initializer(f, state, initializer);
+      if let Some(ref name) = d.name {
+        let _ = f.write_str(" ");
+        show_sym_decl(f, state, name);
+      }
+
+      if let Some(ref arr_spec) = d.ty.array_sizes {
+        show_array_sizes(f, state, &arr_spec);
+      }
+
+      if let Some(ref initializer) = d.initializer {
+        let _ = f.write_str(" = ");
+        show_initializer(f, state, initializer);
+      }
+    }
   }
 }
 
 pub fn show_single_declaration_no_type<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclarationNoType) where F: Write {
-  show_arrayed_identifier(f, &d.ident);
+  panic!();//show_arrayed_identifier(f, &d.ident);
 
   if let Some(ref initializer) = d.initializer {
     let _ = f.write_str(" = ");
@@ -1092,13 +1296,13 @@ pub fn show_block<F>(f: &mut F, state: &mut OutputState, b: &hir::Block) where F
   let _ = f.write_str(" {");
 
   for field in &b.fields {
-    show_struct_field(f, state, field);
+    panic!();//show_struct_field(f, state, field);
     let _ = f.write_str("\n");
   }
   let _ = f.write_str("}");
 
   if let Some(ref ident) = b.identifier {
-    show_arrayed_identifier(f, ident);
+    panic!();//show_arrayed_identifier(f, ident);
   }
 }
 
@@ -1256,13 +1460,13 @@ pub fn show_iteration_statement<F>(f: &mut F, state: &mut OutputState, ist: &hir
 pub fn show_condition<F>(f: &mut F, state: &mut OutputState, c: &hir::Condition) where F: Write {
   match *c {
     hir::Condition::Expr(ref e) => show_hir_expr(f, state, e),
-    hir::Condition::Assignment(ref ty, ref name, ref initializer) => {
-      show_fully_specified_type(f, state, ty);
+    /*hir::Condition::Assignment(ref ty, ref name, ref initializer) => {
+      show_type(f, state, ty);
       let _ = f.write_str(" ");
       show_identifier(f, name);
       let _ = f.write_str(" = ");
       show_initializer(f, state, initializer);
-    }
+    }*/
   }
 }
 
@@ -1306,7 +1510,7 @@ pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpS
           if !state.return_declared {
             f.write_str("I32 ret_mask = ~0;\n");
             // XXX: the cloning here is bad
-            show_fully_specified_type(f, state, &state.return_type.clone().unwrap());
+            show_type(f, state, &state.return_type.clone().unwrap());
             f.write_str(" ret;\n");
             state.return_declared = true;
           }
