@@ -337,6 +337,34 @@ pub fn show_sym<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Wri
   }
 }
 
+pub fn write_constructor<F>(f: &mut F, state: &OutputState, name: &str, s: &hir::StructFields) where F: Write {
+  let _ = write!(f, "{}(", name);
+  let mut first_field = true;
+  for field in &s.fields {
+    if !first_field {
+      let _ = f.write_str(", ");
+    }
+
+    show_type(f, state, &field.ty);
+
+    let _ = f.write_str(" ");
+
+    show_arrayed_identifier(f, state, &field.name, &field.ty);
+    first_field = false;
+  }
+  let _ = f.write_str(") : ");
+
+  let mut first_field = true;
+  for field in &s.fields {
+    if !first_field {
+      let _ = f.write_str(", ");
+    }
+    let _ = write!(f, "{}({})", field.name.as_str(), field.name);
+    first_field = false;
+  }
+  let _ = f.write_str("{}\n");
+}
+
 pub fn show_sym_decl<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Write {
   let sym = state.hir.sym(*i);
   match &sym.decl {
@@ -357,6 +385,8 @@ pub fn show_sym_decl<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F
       let _ = write!(f, "{} ", name);
 
       let _ = f.write_str("{\n");
+
+      write_constructor(f, state, name, s);
 
       for field in &s.fields {
         show_struct_field(f, state, field);
