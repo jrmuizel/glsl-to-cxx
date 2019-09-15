@@ -1029,27 +1029,26 @@ pub fn show_single_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::S
     let _ = f.write_str(" ");
   }
 
+  if let Some(ty_def) = d.ty_def {
+    show_sym_decl(f, state, &ty_def);
+  } else {
+    show_type(f, state, &d.ty);
+  }
+
   // XXX: this is pretty grotty
-  match d.ty.kind {
-    hir::TypeKind::Struct(s) => {
-      show_sym_decl(f, state, &s);
+  if let Some(ref name) = d.name {
+
+    let _ = f.write_str(" ");
+    show_sym_decl(f, state, name);
+
+
+    if let Some(ref arr_spec) = d.ty.array_sizes {
+      show_array_sizes(f, state, &arr_spec);
     }
-    _ => {
-      show_type(f, state, &d.ty);
 
-      if let Some(ref name) = d.name {
-        let _ = f.write_str(" ");
-        show_sym_decl(f, state, name);
-      }
-
-      if let Some(ref arr_spec) = d.ty.array_sizes {
-        show_array_sizes(f, state, &arr_spec);
-      }
-
-      if let Some(ref initializer) = d.initializer {
-        let _ = f.write_str(" = ");
-        show_initializer(f, state, initializer);
-      }
+    if let Some(ref initializer) = d.initializer {
+      let _ = f.write_str(" = ");
+      show_initializer(f, state, initializer);
     }
   }
 }
