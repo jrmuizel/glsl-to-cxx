@@ -102,6 +102,10 @@ pub fn show_sym<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Wri
 }
 
 pub fn write_constructor<F>(f: &mut F, state: &OutputState, name: &str, s: &hir::StructFields) where F: Write {
+
+  // write default constructor
+  let _ = write!(f, "{}() = default;\n", name);
+
   let _ = write!(f, "{}(", name);
   let mut first_field = true;
   for field in &s.fields {
@@ -434,10 +438,11 @@ pub fn show_type_specifier<F>(f: &mut F, state: &mut OutputState, t: &syntax::Ty
 }
 
 pub fn show_type<F>(f: &mut F, state: &OutputState, t: &Type) where F: Write {
-
-  if let Some(ref precision) = t.precision {
-    show_precision_qualifier(f, precision);
-    let _ = f.write_str(" ");
+  if !state.output_cxx {
+    if let Some(ref precision) = t.precision {
+      show_precision_qualifier(f, precision);
+      let _ = f.write_str(" ");
+    }
   }
 
   show_type_kind(f, state, &t.kind);
@@ -529,7 +534,7 @@ pub fn show_array_sizes<F>(f: &mut F, state: &OutputState, a: &hir::ArraySizes) 
   }*/
 }
 
-pub fn show_type_qualifier<F>(f: &mut F, q: &syntax::TypeQualifier) where F: Write {
+pub fn show_type_qualifier<F>(f: &mut F, q: &hir::TypeQualifier) where F: Write {
   let mut qualifiers = q.qualifiers.0.iter();
   let first = qualifiers.next().unwrap();
 
@@ -541,14 +546,13 @@ pub fn show_type_qualifier<F>(f: &mut F, q: &syntax::TypeQualifier) where F: Wri
   }
 }
 
-pub fn show_type_qualifier_spec<F>(f: &mut F, q: &syntax::TypeQualifierSpec) where F: Write {
+pub fn show_type_qualifier_spec<F>(f: &mut F, q: &hir::TypeQualifierSpec) where F: Write {
   match *q {
-    syntax::TypeQualifierSpec::Storage(ref s) => show_storage_qualifier(f, &s),
-    syntax::TypeQualifierSpec::Layout(ref l) => show_layout_qualifier(f, &l),
-    syntax::TypeQualifierSpec::Precision(ref p) => show_precision_qualifier(f, &p),
-    syntax::TypeQualifierSpec::Interpolation(ref i) => show_interpolation_qualifier(f, &i),
-    syntax::TypeQualifierSpec::Invariant => { let _ = f.write_str("invariant"); },
-    syntax::TypeQualifierSpec::Precise => { let _ = f.write_str("precise"); }
+    hir::TypeQualifierSpec::Storage(ref s) => show_storage_qualifier(f, &s),
+    hir::TypeQualifierSpec::Layout(ref l) => show_layout_qualifier(f, &l),
+    hir::TypeQualifierSpec::Interpolation(ref i) => show_interpolation_qualifier(f, &i),
+    hir::TypeQualifierSpec::Invariant => { let _ = f.write_str("invariant"); },
+    hir::TypeQualifierSpec::Precise => { let _ = f.write_str("precise"); }
   }
 }
 
@@ -1024,7 +1028,7 @@ pub fn show_single_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::S
     if !state.output_cxx {
       show_type_qualifier(f, &qual);
     } else {
-      state.flat = qual.qualifiers.0.iter().flat_map(|q| match q { syntax::TypeQualifierSpec::Interpolation(Flat) => Some(()), _ => None}).next().is_some();
+      state.flat = qual.qualifiers.0.iter().flat_map(|q| match q { hir::TypeQualifierSpec::Interpolation(Flat) => Some(()), _ => None}).next().is_some();
     }
     let _ = f.write_str(" ");
   }
