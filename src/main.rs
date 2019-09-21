@@ -1,7 +1,7 @@
 extern crate glsl;
 
 use glsl::parser::Parse;
-use glsl::syntax::TranslationUnit;
+use glsl::syntax::{TranslationUnit, UnaryOp};
 
 mod hir;
 
@@ -156,11 +156,27 @@ pub fn show_sym_decl<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F
 
       write_constructor(f, state, name, s);
 
+
       for field in &s.fields {
         show_struct_field(f, state, field);
       }
 
+
+      // write if_then_else
+      let _ = write!(f, "friend {} if_then_else(I32 c, {} t, {} e) {{\n", name, name, name);
+      let _ = write!(f, "return {}(\n", name);
+      let mut first_field = true;
+      for field in &s.fields {
+        if !first_field {
+          let _ = f.write_str(", ");
+        }
+        let _ = write!(f, "if_then_else(c, t.{}, e.{})", field.name, field.name);
+        first_field = false;
+      }
+      let _ = f.write_str(");\n}");
+
       let _ = f.write_str("}");
+
     }
     _ => panic!()
   }
@@ -173,7 +189,13 @@ pub fn show_type_name<F>(f: &mut F, t: &syntax::TypeName) where F: Write {
 pub fn show_type_specifier_non_array<F>(f: &mut F, state: &mut OutputState, t: &syntax::TypeSpecifierNonArray) where F: Write {
   match *t {
     syntax::TypeSpecifierNonArray::Void => { let _ = f.write_str("void"); }
-    syntax::TypeSpecifierNonArray::Bool => { let _ = f.write_str("bool"); }
+    syntax::TypeSpecifierNonArray::Bool => {
+      if state.output_cxx {
+        let _ = f.write_str("Bool");
+      } else {
+        let _ = f.write_str("bool");
+      }
+    }
     syntax::TypeSpecifierNonArray::Int => {
       if state.output_cxx {
         if state.in_loop_declaration || state.flat {
@@ -303,7 +325,13 @@ pub fn show_type_specifier_non_array<F>(f: &mut F, state: &mut OutputState, t: &
 pub fn show_type_kind<F>(f: &mut F, state: &OutputState, t: &hir::TypeKind) where F: Write {
   match *t {
     hir::TypeKind::Void => { let _ = f.write_str("void"); }
-    hir::TypeKind::Bool => { let _ = f.write_str("bool"); }
+    hir::TypeKind::Bool => {
+      if state.output_cxx {
+        let _ = f.write_str("Bool");
+      } else {
+        let _ = f.write_str("bool");
+      }
+    }
     hir::TypeKind::Int => {
       if state.output_cxx {
         if state.in_loop_declaration || state.flat {
@@ -445,7 +473,23 @@ pub fn show_type<F>(f: &mut F, state: &OutputState, t: &Type) where F: Write {
     }
   }
 
-  show_type_kind(f, state, &t.kind);
+  if state.output_cxx {
+    if let Some(ref array) = t.array_sizes {
+      let _ = f.write_str("std::array<");
+      show_type_kind(f, state, &t.kind);
+      let size = match &array.sizes[..] {
+        [size] => size,
+        _ => panic!()
+      };
+      let _ = f.write_str(",");
+      show_hir_expr(f, state, size);
+      let _ = f.write_str(">");
+    } else {
+      show_type_kind(f, state, &t.kind);
+    }
+  } else {
+    show_type_kind(f, state, &t.kind);
+  }
 
   /*if let Some(ref arr_spec) = t.array_sizes {
     panic!();
@@ -719,7 +763,17 @@ pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where 
       let _ = f.write_str(" ");
       show_assignment_op(f, &op);
       let _ = f.write_str(" ");
-      show_hir_expr(f, state, &e);
+      if let Some(mask) = &state.mask {
+        let _ = f.write_str("if_then_else(");
+        show_hir_expr(f, state, mask);
+        let _ = f.write_str(",");
+        show_hir_expr(f, state, &e);
+        let _ = f.write_str(",");
+        show_hir_expr(f, state, &v);
+        let _ = f.write_str(")");
+      } else {
+        show_hir_expr(f, state, &e);
+      }
     }
     hir::ExprKind::Bracket(ref e, ref indx) => {
       show_hir_expr(f, state, &e);
@@ -728,8 +782,17 @@ pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where 
       let _ = f.write_str("]");
     }
     hir::ExprKind::FunCall(ref fun, ref args) => {
+      let array_constructor = match fun {
+        hir::FunIdentifier::Constructor(Type { array_sizes: Some(arr), ..}) => true,
+        _ => false
+      };
+
       show_hir_function_identifier(f, state, &fun);
-      let _ = f.write_str("(");
+      if array_constructor {
+        let _ = f.write_str("{");
+      } else {
+        let _ = f.write_str("(");
+      }
 
       if !args.is_empty() {
         let mut args_iter = args.iter();
@@ -742,7 +805,11 @@ pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where 
         }
       }
 
-      let _ = f.write_str(")");
+      if array_constructor {
+        let _ = f.write_str("}");
+      } else {
+        let _ = f.write_str(")");
+      }
     }
     hir::ExprKind::Dot(ref e, ref i) => {
       let _ = f.write_str("(");
@@ -940,9 +1007,11 @@ pub fn show_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::Declarat
       let _ = f.write_str(";\n");
     }
     hir::Declaration::Precision(ref qual, ref ty) => {
-      show_precision_qualifier(f, &qual);
-      show_type_specifier(f, state, &ty);
-      let _ = f.write_str(";\n");
+      if !state.output_cxx {
+        show_precision_qualifier(f, &qual);
+        show_type_specifier(f, state, &ty);
+        let _ = f.write_str(";\n");
+      }
     }
     hir::Declaration::Block(ref block) => {
       show_block(f, state, &block);
@@ -1023,13 +1092,17 @@ pub fn show_init_declarator_list<F>(f: &mut F, state: &mut OutputState, i: &hir:
 }
 
 pub fn show_single_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclaration) where F: Write {
-  state.flat = false;
+  if state.output_cxx {
+    show_single_declaration_cxx(f, state, d)
+  } else {
+    show_single_declaration_glsl(f, state, d)
+  }
+}
+
+
+pub fn show_single_declaration_glsl<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclaration) where F: Write {
   if let Some(ref qual) = d.qualifier {
-    if !state.output_cxx {
-      show_type_qualifier(f, &qual);
-    } else {
-      state.flat = qual.qualifiers.0.iter().flat_map(|q| match q { hir::TypeQualifierSpec::Interpolation(Flat) => Some(()), _ => None}).next().is_some();
-    }
+    show_type_qualifier(f, &qual);
     let _ = f.write_str(" ");
   }
 
@@ -1041,7 +1114,6 @@ pub fn show_single_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::S
 
   // XXX: this is pretty grotty
   if let Some(ref name) = d.name {
-
     let _ = f.write_str(" ");
     show_sym_decl(f, state, name);
 
@@ -1049,6 +1121,35 @@ pub fn show_single_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::S
     if let Some(ref arr_spec) = d.ty.array_sizes {
       show_array_sizes(f, state, &arr_spec);
     }
+
+    if let Some(ref initializer) = d.initializer {
+      let _ = f.write_str(" = ");
+      show_initializer(f, state, initializer);
+    }
+  }
+}
+
+pub fn show_single_declaration_cxx<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclaration) where F: Write {
+  state.flat = false;
+  if let Some(ref qual) = d.qualifier {
+    state.flat = qual.qualifiers.0.iter().flat_map(|q| match q { hir::TypeQualifierSpec::Interpolation(Flat) => Some(()), _ => None}).next().is_some();
+  }
+
+  if let Some(ref array) = d.ty.array_sizes {
+    show_type(f, state, &d.ty);
+  } else {
+    if let Some(ty_def) = d.ty_def {
+      show_sym_decl(f, state, &ty_def);
+    } else {
+      show_type(f, state, &d.ty);
+    }
+  }
+
+  // XXX: this is pretty grotty
+  if let Some(ref name) = d.name {
+
+    let _ = f.write_str(" ");
+    show_sym_decl(f, state, name);
 
     if let Some(ref initializer) = d.initializer {
       let _ = f.write_str(" = ");
@@ -1186,11 +1287,21 @@ pub fn show_selection_rest_statement<F>(f: &mut F, state: &mut OutputState, sst:
       }
     }
     hir::SelectionRestStatement::Else(ref if_st, ref else_st) => {
+
+      let previous = state.mask.clone();
+      // invert the mask condition
+      state.mask = state.mask.as_ref().map(|mask| Box::new(hir::Expr {
+        kind: hir::ExprKind::Unary(UnaryOp::Not, mask.clone()),
+        ty: hir::Type::new(hir::TypeKind::Bool) }));
+
       show_statement(f, state, if_st);
       state.outdent();
       show_indent(f, state);
-      let _ = f.write_str("} else ");
+      if !state.output_cxx {
+        let _ = f.write_str("} else ");
+      }
       show_statement(f, state, else_st);
+      state.mask = previous;
     }
   }
 }
