@@ -133,10 +133,23 @@ pub fn write_constructor<F>(f: &mut F, state: &OutputState, name: &str, s: &hir:
   let _ = f.write_str("{}\n");
 }
 
+pub fn show_storage_class<F>(f: &mut F, q: &hir::StorageClass) where F: Write {
+  match *q {
+    hir::StorageClass::None => {  }
+    hir::StorageClass::Const => { let _ = f.write_str("const "); }
+    hir::StorageClass::In => { let _ = f.write_str("in "); }
+    hir::StorageClass::Out => { let _ = f.write_str("out "); }
+    hir::StorageClass::Uniform => { let _ = f.write_str("uniform "); }
+  }
+}
+
 pub fn show_sym_decl<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Write {
   let sym = state.hir.sym(*i);
   match &sym.decl {
-    hir::SymDecl::Variable(..) => {
+    hir::SymDecl::Variable(storage, ..) => {
+      if !state.output_cxx {
+        show_storage_class(f, storage)
+      }
       let mut name = sym.name.as_str();
       if state.output_cxx {
         name = match name {
@@ -592,15 +605,16 @@ pub fn show_type_qualifier<F>(f: &mut F, q: &hir::TypeQualifier) where F: Write 
 
 pub fn show_type_qualifier_spec<F>(f: &mut F, q: &hir::TypeQualifierSpec) where F: Write {
   match *q {
-    hir::TypeQualifierSpec::Storage(ref s) => show_storage_qualifier(f, &s),
     hir::TypeQualifierSpec::Layout(ref l) => show_layout_qualifier(f, &l),
     hir::TypeQualifierSpec::Interpolation(ref i) => show_interpolation_qualifier(f, &i),
+    hir::TypeQualifierSpec::Parameter(ref p) => panic!(),
+    hir::TypeQualifierSpec::Memory(ref m) => panic!(),
     hir::TypeQualifierSpec::Invariant => { let _ = f.write_str("invariant"); },
     hir::TypeQualifierSpec::Precise => { let _ = f.write_str("precise"); }
   }
 }
 
-pub fn show_storage_qualifier<F>(f: &mut F, q: &syntax::StorageQualifier) where F: Write {
+pub fn show_syntax_storage_qualifier<F>(f: &mut F, q: &syntax::StorageQualifier) where F: Write {
   match *q {
     syntax::StorageQualifier::Const => { let _ = f.write_str("const"); }
     syntax::StorageQualifier::InOut => { let _ = f.write_str("inout"); }
