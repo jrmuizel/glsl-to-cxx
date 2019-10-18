@@ -26,6 +26,33 @@ fn main() {
   let mut state = hir::State::new();
   //println!("{:#?}", r);
   let hir = hir::ast_to_hir(&mut state, &r);
+  let mut uniforms = Vec::new();
+  let mut inputs = Vec::new();
+
+  for i in &hir {
+    match i {
+      hir::ExternalDeclaration::Declaration(hir::Declaration::InitDeclaratorList(ref d))  => {
+        match &state.sym(d.head.name).decl {
+          hir::SymDecl::Variable(storage, _) => {
+            match storage {
+              hir::StorageClass::Uniform => {
+                uniforms.push(d.head.name);
+              }
+              hir::StorageClass::In => {
+                inputs.push(d.head.name)
+              }
+              _ => {}
+            }
+          }
+          _ => {}
+        }
+      }
+      _ => {}
+    }
+  }
+
+
+
   //println!("{:#?}", hir);
 
   let mut state = OutputState { hir: state, indent: 0,
@@ -38,11 +65,20 @@ fn main() {
     flat: false
   };
 
+
+
+
   show_translation_unit(&mut output_glsl, &mut state, &hir);
 
   state.should_indent = true;
   state.output_cxx = true;
   let mut output_cxx = String::new();
+
+  /*write!(&mut output_cxx, "//uniforms\n");
+  for i in uniforms {
+    show_full_sym(&mut output_cxx, &mut state, &i);
+    write!(&mut output_cxx, "\n");
+  }*/
   show_translation_unit(&mut output_cxx, &mut state, &hir);
   use std::io::Write;
   let mut fast = std::fs::File::create("ast").unwrap();
@@ -88,6 +124,33 @@ pub fn show_sym<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Wri
   let sym = state.hir.sym(*i);
   match &sym.decl {
     hir::SymDecl::Variable(..) | hir::SymDecl::Function(..) | hir::SymDecl::Struct(..) => {
+      let mut name = sym.name.as_str();
+      if state.output_cxx {
+        name = match name {
+          "int" => { "I32" }
+          _ => { name }
+        };
+      }
+      let _ = f.write_str(name);
+    }
+    _ => panic!()
+  }
+}
+
+pub fn show_full_sym<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Write {
+  let sym = state.hir.sym(*i);
+  match &sym.decl {
+    hir::SymDecl::Variable(..) => {
+      let mut name = sym.name.as_str();
+      if state.output_cxx {
+        name = match name {
+          "int" => { "I32" }
+          _ => { name }
+        };
+      }
+      let _ = f.write_str(name);
+    }
+    hir::SymDecl::Function(..) | hir::SymDecl::Struct(..) => {
       let mut name = sym.name.as_str();
       if state.output_cxx {
         name = match name {
@@ -167,27 +230,27 @@ pub fn show_sym_decl<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F
 
       let _ = f.write_str("{\n");
 
-      write_constructor(f, state, name, s);
-
-
       for field in &s.fields {
         show_struct_field(f, state, field);
       }
 
-
       // write if_then_else
-      let _ = write!(f, "friend {} if_then_else(I32 c, {} t, {} e) {{\n", name, name, name);
-      let _ = write!(f, "return {}(\n", name);
-      let mut first_field = true;
-      for field in &s.fields {
-        if !first_field {
-          let _ = f.write_str(", ");
-        }
-        let _ = write!(f, "if_then_else(c, t.{}, e.{})", field.name, field.name);
-        first_field = false;
-      }
-      let _ = f.write_str(");\n}");
+      if state.output_cxx {
+        write_constructor(f, state, name, s);
 
+        let _ = write!(f, "friend {} if_then_else(I32 c, {} t, {} e) {{\n", name, name, name);
+        let _ = write!(f, "return {}(\n", name);
+        let mut first_field = true;
+        for field in &s.fields {
+          if !first_field {
+            let _ = f.write_str(", ");
+          }
+          let _ = write!(f, "if_then_else(c, t.{}, e.{})", field.name, field.name);
+          first_field = false;
+        }
+        let _ = f.write_str(");\n}");
+
+      }
       let _ = f.write_str("}");
 
     }
@@ -1046,6 +1109,11 @@ pub fn show_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::Declarat
 
       let _ = f.write_str(";\n");
     }
+    hir::Declaration::StructDefinition(ref sym) => {
+      show_sym_decl(f, state, sym);
+
+      let _ = f.write_str(";\n");
+    }
   }
 }
 
@@ -1120,27 +1188,35 @@ pub fn show_single_declaration_glsl<F>(f: &mut F, state: &mut OutputState, d: &h
     let _ = f.write_str(" ");
   }
 
+  let sym = state.hir.sym(d.name);
+  match &sym.decl {
+    hir::SymDecl::Variable(storage, ..) => {
+      if !state.output_cxx {
+        show_storage_class(f, storage)
+      }
+    }
+    _ => panic!("should be variable")
+  }
+
   if let Some(ty_def) = d.ty_def {
     show_sym_decl(f, state, &ty_def);
   } else {
     show_type(f, state, &d.ty);
   }
 
-  // XXX: this is pretty grotty
-  if let Some(ref name) = d.name {
-    let _ = f.write_str(" ");
-    show_sym_decl(f, state, name);
+  let _ = f.write_str(" ");
+  let mut name = sym.name.as_str();
+  let _ = f.write_str(name);
 
-
-    if let Some(ref arr_spec) = d.ty.array_sizes {
-      show_array_sizes(f, state, &arr_spec);
-    }
-
-    if let Some(ref initializer) = d.initializer {
-      let _ = f.write_str(" = ");
-      show_initializer(f, state, initializer);
-    }
+  if let Some(ref arr_spec) = d.ty.array_sizes {
+    show_array_sizes(f, state, &arr_spec);
   }
+
+  if let Some(ref initializer) = d.initializer {
+    let _ = f.write_str(" = ");
+    show_initializer(f, state, initializer);
+  }
+
 }
 
 pub fn show_single_declaration_cxx<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclaration) where F: Write {
@@ -1160,16 +1236,14 @@ pub fn show_single_declaration_cxx<F>(f: &mut F, state: &mut OutputState, d: &hi
   }
 
   // XXX: this is pretty grotty
-  if let Some(ref name) = d.name {
+  let _ = f.write_str(" ");
+  show_sym_decl(f, state, &d.name);
 
-    let _ = f.write_str(" ");
-    show_sym_decl(f, state, name);
-
-    if let Some(ref initializer) = d.initializer {
-      let _ = f.write_str(" = ");
-      show_initializer(f, state, initializer);
-    }
+  if let Some(ref initializer) = d.initializer {
+    let _ = f.write_str(" = ");
+    show_initializer(f, state, initializer);
   }
+
 }
 
 pub fn show_single_declaration_no_type<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclarationNoType) where F: Write {
