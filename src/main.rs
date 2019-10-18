@@ -125,6 +125,7 @@ pub fn show_sym<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Wri
   match &sym.decl {
     hir::SymDecl::Variable(..) | hir::SymDecl::Function(..) | hir::SymDecl::Struct(..) => {
       let mut name = sym.name.as_str();
+      // we want to replace constructor names
       if state.output_cxx {
         name = match name {
           "int" => { "I32" }
