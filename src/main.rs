@@ -17,7 +17,7 @@ fn main() {
   std::fs::File::open(file).unwrap().read_to_string(&mut contents).unwrap();
   let r = TranslationUnit::parse(contents);
 
-  println!("{:#?}", r);
+  //println!("{:#?}", r);
   let mut output_glsl = String::new();
 
   let mut ast_glsl = String::new();
@@ -25,8 +25,9 @@ fn main() {
   glsl::transpiler::glsl::show_translation_unit(&mut ast_glsl, &r);
 
   let mut state = hir::State::new();
-  //println!("{:#?}", r);
   let hir = hir::ast_to_hir(&mut state, &r);
+  println!("{:#?}", state);
+
   let mut uniforms = Vec::new();
   let mut inputs = Vec::new();
 
@@ -673,7 +674,7 @@ pub fn show_type_qualifier_spec<F>(f: &mut F, q: &hir::TypeQualifierSpec) where 
   match *q {
     hir::TypeQualifierSpec::Layout(ref l) => show_layout_qualifier(f, &l),
     hir::TypeQualifierSpec::Interpolation(ref i) => show_interpolation_qualifier(f, &i),
-    hir::TypeQualifierSpec::Parameter(ref p) => panic!(),
+    hir::TypeQualifierSpec::Parameter(ref p) => show_parameter_qualifier(f, &p),
     hir::TypeQualifierSpec::Memory(ref m) => panic!(),
     hir::TypeQualifierSpec::Invariant => { let _ = f.write_str("invariant"); },
     hir::TypeQualifierSpec::Precise => { let _ = f.write_str("precise"); }
@@ -762,6 +763,16 @@ pub fn show_interpolation_qualifier<F>(f: &mut F, i: &syntax::InterpolationQuali
     syntax::InterpolationQualifier::NoPerspective => { let _ = f.write_str("noperspective"); }
   }
 }
+
+pub fn show_parameter_qualifier<F>(f: &mut F, i: &hir::ParameterQualifier) where F: Write {
+  match *i {
+    hir::ParameterQualifier::Const => { let _ = f.write_str("const"); }
+    hir::ParameterQualifier::In => { let _ = f.write_str("in"); }
+    hir::ParameterQualifier::Out => { let _ = f.write_str("out"); }
+    hir::ParameterQualifier::InOut => { let _ = f.write_str("inout"); }
+  }
+}
+
 
 pub fn show_float<F>(f: &mut F, x: f32) where F: Write {
   if x.fract() == 0. {
