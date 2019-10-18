@@ -74,11 +74,12 @@ fn main() {
   state.output_cxx = true;
   let mut output_cxx = String::new();
 
-  /*write!(&mut output_cxx, "//uniforms\n");
+  write!(&mut output_cxx, "/* uniforms\n");
   for i in uniforms {
     show_full_sym(&mut output_cxx, &mut state, &i);
     write!(&mut output_cxx, "\n");
-  }*/
+  }
+  write!(&mut output_cxx, "*/");
   show_translation_unit(&mut output_cxx, &mut state, &hir);
   use std::io::Write;
   let mut fast = std::fs::File::create("ast").unwrap();
