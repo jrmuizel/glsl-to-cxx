@@ -17,6 +17,7 @@ fn main() {
   std::fs::File::open(file).unwrap().read_to_string(&mut contents).unwrap();
   let r = TranslationUnit::parse(contents);
 
+  println!("{:#?}", r);
   let mut output_glsl = String::new();
 
   let mut ast_glsl = String::new();
@@ -76,10 +77,18 @@ fn main() {
 
   write!(&mut output_cxx, "/* uniforms\n");
   for i in uniforms {
-    show_full_sym(&mut output_cxx, &mut state, &i);
+    show_variable(&mut output_cxx, &mut state, &i);
     write!(&mut output_cxx, "\n");
   }
-  write!(&mut output_cxx, "*/");
+  write!(&mut output_cxx, "*/\n");
+
+  write!(&mut output_cxx, "/* inputs\n");
+  for i in inputs {
+    show_variable(&mut output_cxx, &mut state, &i);
+    write!(&mut output_cxx, "\n");
+  }
+  write!(&mut output_cxx, "*/\n");
+
   show_translation_unit(&mut output_cxx, &mut state, &hir);
   use std::io::Write;
   let mut fast = std::fs::File::create("ast").unwrap();
@@ -139,20 +148,12 @@ pub fn show_sym<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Wri
   }
 }
 
-pub fn show_full_sym<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Write {
+pub fn show_variable<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Write {
   let sym = state.hir.sym(*i);
   match &sym.decl {
-    hir::SymDecl::Variable(..) => {
-      let mut name = sym.name.as_str();
-      if state.output_cxx {
-        name = match name {
-          "int" => { "I32" }
-          _ => { name }
-        };
-      }
-      let _ = f.write_str(name);
-    }
-    hir::SymDecl::Function(..) | hir::SymDecl::Struct(..) => {
+    hir::SymDecl::Variable(_, ty) => {
+      show_type(f, state, ty);
+      let _ = f.write_str(" ");
       let mut name = sym.name.as_str();
       if state.output_cxx {
         name = match name {
