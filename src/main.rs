@@ -674,7 +674,7 @@ pub fn show_type_qualifier_spec<F>(f: &mut F, q: &hir::TypeQualifierSpec) where 
   match *q {
     hir::TypeQualifierSpec::Layout(ref l) => show_layout_qualifier(f, &l),
     hir::TypeQualifierSpec::Interpolation(ref i) => show_interpolation_qualifier(f, &i),
-    hir::TypeQualifierSpec::Parameter(ref p) => show_parameter_qualifier(f, &p),
+    hir::TypeQualifierSpec::Parameter(ref p) => panic!(),
     hir::TypeQualifierSpec::Memory(ref m) => panic!(),
     hir::TypeQualifierSpec::Invariant => { let _ = f.write_str("invariant"); },
     hir::TypeQualifierSpec::Precise => { let _ = f.write_str("precise"); }
@@ -764,12 +764,22 @@ pub fn show_interpolation_qualifier<F>(f: &mut F, i: &syntax::InterpolationQuali
   }
 }
 
-pub fn show_parameter_qualifier<F>(f: &mut F, i: &hir::ParameterQualifier) where F: Write {
-  match *i {
-    hir::ParameterQualifier::Const => { let _ = f.write_str("const"); }
-    hir::ParameterQualifier::In => { let _ = f.write_str("in"); }
-    hir::ParameterQualifier::Out => { let _ = f.write_str("out"); }
-    hir::ParameterQualifier::InOut => { let _ = f.write_str("inout"); }
+pub fn show_parameter_qualifier<F>(f: &mut F, state: &mut OutputState, i: &Option<hir::ParameterQualifier>) where F: Write {
+  if let Some(i) = i {
+    if state.output_cxx {
+      match *i {
+        hir::ParameterQualifier::Out => { let _ = f.write_str("&"); }
+        hir::ParameterQualifier::InOut => { let _ = f.write_str("&"); }
+        _ => {}
+      }
+    } else {
+      match *i {
+        hir::ParameterQualifier::Const => { let _ = f.write_str("const"); }
+        hir::ParameterQualifier::In => { let _ = f.write_str("in"); }
+        hir::ParameterQualifier::Out => { let _ = f.write_str("out"); }
+        hir::ParameterQualifier::InOut => { let _ = f.write_str("inout"); }
+      }
+    }
   }
 }
 
@@ -1151,35 +1161,32 @@ pub fn show_function_prototype<F>(f: &mut F, state: &mut OutputState, fp: &hir::
 
   let _ = f.write_str(")");
 }
+
 pub fn show_function_parameter_declaration<F>(f: &mut F, state: &mut OutputState, p: &hir::FunctionParameterDeclaration) where F: Write {
   match *p {
     hir::FunctionParameterDeclaration::Named(ref qual, ref fpd) => {
       if state.output_cxx {
-
+        show_type(f, state, &fpd.ty);
+        show_parameter_qualifier(f, state, qual);
       } else {
-        if let Some(ref q) = *qual {
-          show_parameter_qualifier(f, q);
-          let _ = f.write_str(" ");
-        }
+        show_parameter_qualifier(f, state, qual);
+        let _ = f.write_str(" ");
+        show_type(f, state, &fpd.ty);
       }
-
-      show_function_parameter_declarator(f, state, fpd);
+      let _ = f.write_str(" ");
+      show_arrayed_identifier(f, state, &fpd.ident, &fpd.ty);
     }
     hir::FunctionParameterDeclaration::Unnamed(ref qual, ref ty) => {
-      if let Some(ref q) = *qual {
-        show_parameter_qualifier(f, q);
+      if state.output_cxx {
+        show_type_specifier(f, state, ty);
+        show_parameter_qualifier(f, state, qual);
+      } else {
+        show_parameter_qualifier(f, state, qual);
         let _ = f.write_str(" ");
+        show_type_specifier(f, state, ty);
       }
-
-      show_type_specifier(f, state, ty);
     }
   }
-}
-
-pub fn show_function_parameter_declarator<F>(f: &mut F, state: &mut OutputState, p: &hir::FunctionParameterDeclarator) where F: Write {
-  show_type(f, state, &p.ty);
-  let _ = f.write_str(" ");
-  show_arrayed_identifier(f, state, &p.ident, &p.ty);
 }
 
 pub fn show_init_declarator_list<F>(f: &mut F, state: &mut OutputState, i: &hir::InitDeclaratorList) where F: Write {
