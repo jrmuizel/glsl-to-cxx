@@ -26,7 +26,7 @@ fn main() {
 
   let mut state = hir::State::new();
   let hir = hir::ast_to_hir(&mut state, &r);
-  println!("{:#?}", state);
+  //println!("{:#?}", state);
 
   let mut uniforms = Vec::new();
   let mut inputs = Vec::new();
@@ -1154,16 +1154,20 @@ pub fn show_function_prototype<F>(f: &mut F, state: &mut OutputState, fp: &hir::
 pub fn show_function_parameter_declaration<F>(f: &mut F, state: &mut OutputState, p: &hir::FunctionParameterDeclaration) where F: Write {
   match *p {
     hir::FunctionParameterDeclaration::Named(ref qual, ref fpd) => {
-      if let Some(ref q) = *qual {
-        show_type_qualifier(f, q);
-        let _ = f.write_str(" ");
+      if state.output_cxx {
+
+      } else {
+        if let Some(ref q) = *qual {
+          show_parameter_qualifier(f, q);
+          let _ = f.write_str(" ");
+        }
       }
 
       show_function_parameter_declarator(f, state, fpd);
     }
     hir::FunctionParameterDeclaration::Unnamed(ref qual, ref ty) => {
       if let Some(ref q) = *qual {
-        show_type_qualifier(f, q);
+        show_parameter_qualifier(f, q);
         let _ = f.write_str(" ");
       }
 
