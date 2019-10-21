@@ -9,6 +9,12 @@ use hir::State;
 use hir::Type;
 use std::io::Read;
 
+#[derive(PartialEq, Eq)]
+enum ShaderKind {
+  Fragment,
+  Vertex
+}
+
 fn main() {
 
   let file = std::env::args().nth(1).unwrap();
@@ -64,7 +70,8 @@ fn main() {
     mask: None,
     return_type: None,
     return_declared: false,
-    flat: false
+    flat: false,
+    kind: ShaderKind::Vertex,
   };
 
 
@@ -110,7 +117,8 @@ pub struct OutputState {
   mask: Option<Box<hir::Expr>>,
   return_type: Option<Box<hir::Type>>,
   return_declared: bool,
-  flat: bool
+  flat: bool,
+  kind: ShaderKind
 }
 
 impl OutputState {
@@ -140,6 +148,7 @@ pub fn show_sym<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Wri
       if state.output_cxx {
         name = match name {
           "int" => { "I32" }
+          "float" => { "Float" }
           _ => { name }
         };
       }
@@ -278,7 +287,7 @@ pub fn show_type_specifier_non_array<F>(f: &mut F, state: &mut OutputState, t: &
     }
     syntax::TypeSpecifierNonArray::Int => {
       if state.output_cxx {
-        if state.in_loop_declaration || state.flat {
+        if state.in_loop_declaration || (state.flat && state.kind == ShaderKind::Fragment) {
           let _ = f.write_str("int");
         } else {
           let _ = f.write_str("I32");
@@ -414,7 +423,7 @@ pub fn show_type_kind<F>(f: &mut F, state: &OutputState, t: &hir::TypeKind) wher
     }
     hir::TypeKind::Int => {
       if state.output_cxx {
-        if state.in_loop_declaration || state.flat {
+        if state.in_loop_declaration || (state.flat && state.kind == ShaderKind::Fragment) {
           let _ = f.write_str("int");
         } else {
           let _ = f.write_str("I32");
