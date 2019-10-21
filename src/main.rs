@@ -1317,11 +1317,47 @@ pub fn show_block<F>(f: &mut F, state: &mut OutputState, b: &hir::Block) where F
   }
 }
 
+struct NoWrite;
+impl Write for NoWrite {
+  fn write_str(&mut self, s: &str) -> Result<(), std::fmt::Error> {
+    Ok(())
+  }
+}
+
+// This is a hack to run through the first time with an empty writter to find if 'return' is declared.
+pub fn has_conditional_return(state: &mut OutputState, cst: &hir::CompoundStatement) -> bool {
+  let mut f = NoWrite{};
+  show_compound_statement(&mut f, state, cst);
+  let result = state.return_declared;
+  state.return_declared = false;
+  result
+}
+
 pub fn show_function_definition<F>(f: &mut F, state: &mut OutputState, fd: &hir::FunctionDefinition) where F: Write {
   show_function_prototype(f, state, &fd.prototype);
   let _ = f.write_str(" ");
   state.return_type = Some(Box::new(fd.prototype.ty.clone()));
-  show_compound_statement(f, state, &fd.statement);
+  state.return_declared = has_conditional_return(state, &fd.statement);
+
+  show_indent(f, state);
+  let _ = f.write_str("{\n");
+
+  state.indent();
+  if state.return_declared {
+    show_indent(f, state);
+    f.write_str("I32 ret_mask = ~0;\n");
+    // XXX: the cloning here is bad
+    show_indent(f, state);
+    show_type(f, state, &state.return_type.clone().unwrap());
+    f.write_str(" ret;\n");
+  }
+  for st in &fd.statement.statement_list {
+    show_statement(f, state, st);
+  }
+  state.outdent();
+
+  show_indent(f, state);
+  let _ = f.write_str("}\n");
   state.return_type = None;
   state.return_declared = false;
 }
@@ -1401,16 +1437,17 @@ pub fn show_selection_rest_statement<F>(f: &mut F, state: &mut OutputState, sst:
     }
     hir::SelectionRestStatement::Else(ref if_st, ref else_st) => {
 
+      show_statement(f, state, if_st);
+
       let previous = state.mask.clone();
       // invert the mask condition
       state.mask = state.mask.as_ref().map(|mask| Box::new(hir::Expr {
         kind: hir::ExprKind::Unary(UnaryOp::Not, mask.clone()),
         ty: hir::Type::new(hir::TypeKind::Bool) }));
 
-      show_statement(f, state, if_st);
-      state.outdent();
-      show_indent(f, state);
       if !state.output_cxx {
+        state.outdent();
+        show_indent(f, state);
         let _ = f.write_str("} else ");
       }
       show_statement(f, state, else_st);
@@ -1529,6 +1566,7 @@ pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpS
       if state.output_cxx {
         if state.mask.is_some() {
           if !state.return_declared {
+            // XXX: if we're nested then this declaration won't work
             f.write_str("I32 ret_mask = ~0;\n");
             // XXX: the cloning here is bad
             show_type(f, state, &state.return_type.clone().unwrap());
@@ -1541,6 +1579,7 @@ pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpS
           let _ = f.write_str("), ");
           show_hir_expr(f, state, e);
           let _ = f.write_str(", ret);\n");
+          show_indent(f, state);
           let _ = f.write_str("ret_mask &= ~(");
           show_hir_expr(f, state, &state.mask.clone().unwrap());
           let _ = f.write_str(");\n");
