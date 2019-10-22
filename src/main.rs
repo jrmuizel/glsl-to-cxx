@@ -133,7 +133,7 @@ impl OutputState {
 use std::fmt::Write;
 
 use glsl::syntax;
-use crate::hir::{SwitchStatement, SwizzleSelector};
+use crate::hir::{SwitchStatement, SwizzleSelector, SelectionStatement, Statement};
 
 pub fn show_identifier<F>(f: &mut F, i: &syntax::Identifier) where F: Write {
   let _ = f.write_str(&i.0);
@@ -1465,7 +1465,86 @@ pub fn show_selection_rest_statement<F>(f: &mut F, state: &mut OutputState, sst:
   }
 }
 
+fn case_stmts_to_if_stmts(stmts: &Vec<Statement>) -> Box<Statement> {
+  // Look for jump statements and remove them
+  // We currently are pretty strict on the form that the statement
+  // list needs to be in. This can be loosened as needed.
+  let cstmt = match &stmts[..] {
+    [hir::Statement::Compound(c)] => {
+      match c.statement_list.split_last() {
+        Some((hir::Statement::Simple(s), rest)) => {
+          match **s {
+            hir::SimpleStatement::Jump(hir::JumpStatement::Break) => {
+              hir::CompoundStatement{statement_list: rest.to_owned() }
+            }
+            _ => panic!("fall through not supported")
+          }
+        }
+        _ => panic!("empty compound")
+      }
+    },
+    [hir::Statement::Simple(s)] => {
+      match **s {
+        hir::SimpleStatement::Jump(hir::JumpStatement::Break) => {
+          hir::CompoundStatement{statement_list: Vec::new() }
+        }
+        _ => panic!("fall through not supported")
+      }
+    }
+    _ => panic!("unexpected case structure {:#?}", stmts)
+  };
+  let stmts = Box::new(hir::Statement::Compound(Box::new(cstmt)));
+  stmts
+
+}
+
+
+fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(head: &Box<hir::Expr>, case: &hir::Case, mut cases: I, default: Option<&hir::Case>) -> hir::SelectionStatement {
+  let stmts = case_stmts_to_if_stmts(&case.stmts);
+
+  // find the next case that's not a default
+  let next_case = loop {
+    match cases.next() {
+      Some(hir::Case { label: hir::CaseLabel::Def, ..}) => { },
+      case => break case,
+    }
+  };
+
+  let rest = if let Some(case) = next_case {
+    hir::SelectionRestStatement::Else(stmts, Box::new(hir::Statement::Simple(Box::new(hir::SimpleStatement::Selection(build_selection(head, case, cases, default))))))
+  } else {
+    match default {
+      Some(default) => hir::SelectionRestStatement::Else(stmts, case_stmts_to_if_stmts(&default.stmts)),
+      None => hir::SelectionRestStatement::Statement(stmts)
+    }
+  };
+
+  hir::SelectionStatement {
+    cond: match &case.label {
+      hir::CaseLabel::Case(e) => {
+        Box::new(hir::Expr { kind: hir::ExprKind::Binary(syntax::BinaryOp::Equal, head.clone(), e.clone()),
+          ty: hir::Type::new(hir::TypeKind::Bool)})
+      }
+      hir::CaseLabel::Def => { panic!("defaults should have been filtered early") }
+    },
+    rest,
+  }
+}
+
+pub fn lower_switch_to_ifs(sst: &hir::SwitchStatement) -> hir::SelectionStatement {
+  let default = sst.cases.iter().find(|x| x.label == hir::CaseLabel::Def);
+  let mut cases = sst.cases.iter();
+  let r = build_selection(&sst.head, cases.next().unwrap(), cases, default);
+  r
+}
+
 pub fn show_switch_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SwitchStatement) where F: Write {
+
+  if state.output_cxx && state.kind == ShaderKind::Vertex {
+    let ifs = lower_switch_to_ifs(sst);
+    return show_selection_statement(f, state, &ifs);
+  }
+
   show_indent(f, state);
   let _ = f.write_str("switch (");
   show_hir_expr(f, state, &sst.head);
