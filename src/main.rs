@@ -193,7 +193,7 @@ pub fn write_constructor<F>(f: &mut F, state: &OutputState, name: &str, s: &hir:
 
     let _ = f.write_str(" ");
 
-    show_arrayed_identifier(f, state, &field.name, &field.ty);
+    show_identifier_and_type(f, state, &field.name, &field.ty);
     first_field = false;
   }
   let _ = f.write_str(") : ");
@@ -624,7 +624,7 @@ pub fn show_struct_field<F>(f: &mut F, state: &OutputState, field: &hir::StructF
   show_type(f, state, &field.ty);
   let _ = f.write_str(" ");
 
-  show_arrayed_identifier(f, state, &field.name, &field.ty);
+  show_identifier_and_type(f, state, &field.name, &field.ty);
 
   let _ = f.write_str(";\n");
 }
@@ -640,13 +640,22 @@ pub fn show_array_spec<F>(f: &mut F, a: &syntax::ArraySpecifier) where F: Write 
   }
 }
 
-pub fn show_arrayed_identifier<F>(f: &mut F, state: &OutputState, ident: &syntax::Identifier, ty: &hir::Type) where F: Write {
+pub fn show_identifier_and_type<F>(f: &mut F, state: &OutputState, ident: &syntax::Identifier, ty: &hir::Type) where F: Write {
   let _ = write!(f, "{}", ident);
 
   if let Some(ref arr_spec) = ty.array_sizes {
     show_array_sizes(f, state, &arr_spec);
   }
 }
+
+pub fn show_arrayed_identifier<F>(f: &mut F, state: &OutputState, ident: &syntax::ArrayedIdentifier) where F: Write {
+  let _ = write!(f, "{}", ident.ident);
+
+  if let Some(ref arr_spec) = ident.array_spec {
+    show_array_spec(f, &arr_spec);
+  }
+}
+
 
 pub fn show_array_sizes<F>(f: &mut F, state: &OutputState, a: &hir::ArraySizes) where F: Write {
   let _ = f.write_str("[");
@@ -1183,7 +1192,7 @@ pub fn show_function_parameter_declaration<F>(f: &mut F, state: &mut OutputState
         show_type(f, state, &fpd.ty);
       }
       let _ = f.write_str(" ");
-      show_arrayed_identifier(f, state, &fpd.ident, &fpd.ty);
+      show_identifier_and_type(f, state, &fpd.ident, &fpd.ty);
     }
     hir::FunctionParameterDeclaration::Unnamed(ref qual, ref ty) => {
       if state.output_cxx {
@@ -1281,7 +1290,7 @@ pub fn show_single_declaration_cxx<F>(f: &mut F, state: &mut OutputState, d: &hi
 }
 
 pub fn show_single_declaration_no_type<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclarationNoType) where F: Write {
-  panic!();//show_arrayed_identifier(f, &d.ident);
+  show_arrayed_identifier(f, state, &d.ident);
 
   if let Some(ref initializer) = d.initializer {
     let _ = f.write_str(" = ");
@@ -1465,7 +1474,7 @@ pub fn show_selection_rest_statement<F>(f: &mut F, state: &mut OutputState, sst:
   }
 }
 
-fn case_stmts_to_if_stmts(stmts: &Vec<Statement>) -> Box<Statement> {
+fn case_stmts_to_if_stmts(stmts: &Vec<Statement>) -> Option<Box<Statement>> {
   // Look for jump statements and remove them
   // We currently are pretty strict on the form that the statement
   // list needs to be in. This can be loosened as needed.
@@ -1491,15 +1500,23 @@ fn case_stmts_to_if_stmts(stmts: &Vec<Statement>) -> Box<Statement> {
         _ => panic!("fall through not supported")
       }
     }
+    [] => {
+      return None
+    }
     _ => panic!("unexpected case structure {:#?}", stmts)
   };
   let stmts = Box::new(hir::Statement::Compound(Box::new(cstmt)));
-  stmts
-
+  Some(stmts)
 }
 
 
-fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(head: &Box<hir::Expr>, case: &hir::Case, mut cases: I, default: Option<&hir::Case>) -> hir::SelectionStatement {
+fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
+  head: &Box<hir::Expr>,
+  case: &hir::Case,
+  mut cases: I,
+  default: Option<&hir::Case>,
+  previous_condition: Option<Box<hir::Expr>>,
+) -> hir::SelectionStatement {
   let stmts = case_stmts_to_if_stmts(&case.stmts);
 
   // find the next case that's not a default
@@ -1510,23 +1527,40 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(head: &Box<hir::Expr>,
     }
   };
 
+  let cond = match &case.label {
+    hir::CaseLabel::Case(e) => {
+      Box::new(hir::Expr { kind: hir::ExprKind::Binary(syntax::BinaryOp::Equal, head.clone(), e.clone()),
+        ty: hir::Type::new(hir::TypeKind::Bool)})
+    }
+    hir::CaseLabel::Def => { panic!("defaults should have been filtered early") }
+  };
+
+
+  let cond = match previous_condition {
+    Some(prev) => Box::new(hir::Expr {
+      kind: hir::ExprKind::Binary(syntax::BinaryOp::Or, prev, cond),
+      ty: hir::Type::new(hir::TypeKind::Bool)
+    }),
+    None => cond
+  };
+
   let rest = if let Some(case) = next_case {
-    hir::SelectionRestStatement::Else(stmts, Box::new(hir::Statement::Simple(Box::new(hir::SimpleStatement::Selection(build_selection(head, case, cases, default))))))
+    if let Some(stmts) = stmts {
+      hir::SelectionRestStatement::Else(stmts, Box::new(hir::Statement::Simple(Box::new(hir::SimpleStatement::Selection(build_selection(head, case, cases, default, None))))))
+    } else {
+      return build_selection(head, case, cases, default, Some(cond))
+    }
   } else {
+    let stmts = stmts.expect("empty case labels unsupported at the end");
+    // add the default case at the end if we have one
     match default {
-      Some(default) => hir::SelectionRestStatement::Else(stmts, case_stmts_to_if_stmts(&default.stmts)),
+      Some(default) => hir::SelectionRestStatement::Else(stmts, case_stmts_to_if_stmts(&default.stmts).expect("empty default unsupported")),
       None => hir::SelectionRestStatement::Statement(stmts)
     }
   };
 
   hir::SelectionStatement {
-    cond: match &case.label {
-      hir::CaseLabel::Case(e) => {
-        Box::new(hir::Expr { kind: hir::ExprKind::Binary(syntax::BinaryOp::Equal, head.clone(), e.clone()),
-          ty: hir::Type::new(hir::TypeKind::Bool)})
-      }
-      hir::CaseLabel::Def => { panic!("defaults should have been filtered early") }
-    },
+    cond,
     rest,
   }
 }
@@ -1534,7 +1568,7 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(head: &Box<hir::Expr>,
 pub fn lower_switch_to_ifs(sst: &hir::SwitchStatement) -> hir::SelectionStatement {
   let default = sst.cases.iter().find(|x| x.label == hir::CaseLabel::Def);
   let mut cases = sst.cases.iter();
-  let r = build_selection(&sst.head, cases.next().unwrap(), cases, default);
+  let r = build_selection(&sst.head, cases.next().unwrap(), cases, default, None);
   r
 }
 
