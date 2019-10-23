@@ -1790,48 +1790,48 @@ pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpS
   }
 }
 
-pub fn show_preprocessor<F>(f: &mut F, pp: &hir::Preprocessor) where F: Write {
+pub fn show_preprocessor<F>(f: &mut F, pp: &syntax::Preprocessor) where F: Write {
   match *pp {
-    hir::Preprocessor::Define(ref pd) => show_preprocessor_define(f, pd),
-    hir::Preprocessor::Version(ref pv) => show_preprocessor_version(f, pv),
-    hir::Preprocessor::Extension(ref pe) => show_preprocessor_extension(f, pe)
+    syntax::Preprocessor::Define(ref pd) => show_preprocessor_define(f, pd),
+    syntax::Preprocessor::Version(ref pv) => show_preprocessor_version(f, pv),
+    syntax::Preprocessor::Extension(ref pe) => show_preprocessor_extension(f, pe)
   }
 }
 
-pub fn show_preprocessor_define<F>(f: &mut F, pd: &hir::PreprocessorDefine) where F: Write {
+pub fn show_preprocessor_define<F>(f: &mut F, pd: &syntax::PreprocessorDefine) where F: Write {
   let _ = write!(f, "#define {} ", pd.name);
   show_expr(f, panic!());
   let _ = f.write_str("\n");
 }
 
-pub fn show_preprocessor_version<F>(f: &mut F, pv: &hir::PreprocessorVersion) where F: Write {
+pub fn show_preprocessor_version<F>(f: &mut F, pv: &syntax::PreprocessorVersion) where F: Write {
   let _ = write!(f, "#version {}", pv.version);
 
   if let Some(ref profile) = pv.profile {
     match *profile {
-      hir::PreprocessorVersionProfile::Core => { let _ = f.write_str(" core"); }
-      hir::PreprocessorVersionProfile::Compatibility => { let _ = f.write_str(" compatibility"); }
-      hir::PreprocessorVersionProfile::ES => { let _ = f.write_str(" es"); }
+      syntax::PreprocessorVersionProfile::Core => { let _ = f.write_str(" core"); }
+      syntax::PreprocessorVersionProfile::Compatibility => { let _ = f.write_str(" compatibility"); }
+      syntax::PreprocessorVersionProfile::ES => { let _ = f.write_str(" es"); }
     }
   }
 
   let _ = f.write_str("\n");
 }
 
-pub fn show_preprocessor_extension<F>(f: &mut F, pe: &hir::PreprocessorExtension) where F: Write {
+pub fn show_preprocessor_extension<F>(f: &mut F, pe: &syntax::PreprocessorExtension) where F: Write {
   let _ = f.write_str("#extension ");
 
   match pe.name {
-    hir::PreprocessorExtensionName::All => { let _ = f.write_str("all"); }
-    hir::PreprocessorExtensionName::Specific(ref n) => { let _ = f.write_str(n); }
+    syntax::PreprocessorExtensionName::All => { let _ = f.write_str("all"); }
+    syntax::PreprocessorExtensionName::Specific(ref n) => { let _ = f.write_str(n); }
   }
 
   if let Some(ref behavior) = pe.behavior {
     match *behavior {
-      hir::PreprocessorExtensionBehavior::Require => { let _ = f.write_str(" : require"); }
-      hir::PreprocessorExtensionBehavior::Enable => { let _ = f.write_str(" : enable"); }
-      hir::PreprocessorExtensionBehavior::Warn => { let _ = f.write_str(" : warn"); }
-      hir::PreprocessorExtensionBehavior::Disable => { let _ = f.write_str(" : disable"); }
+      syntax::PreprocessorExtensionBehavior::Require => { let _ = f.write_str(" : require"); }
+      syntax::PreprocessorExtensionBehavior::Enable => { let _ = f.write_str(" : enable"); }
+      syntax::PreprocessorExtensionBehavior::Warn => { let _ = f.write_str(" : warn"); }
+      syntax::PreprocessorExtensionBehavior::Disable => { let _ = f.write_str(" : disable"); }
     }
   }
 
