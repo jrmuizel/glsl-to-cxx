@@ -881,17 +881,40 @@ pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where 
     hir::ExprKind::Assignment(ref v, ref op, ref e) => {
       show_hir_expr(f, state, &v);
       let _ = f.write_str(" ");
-      show_assignment_op(f, &op);
-      let _ = f.write_str(" ");
+
       if let Some(mask) = &state.mask {
-        let _ = f.write_str("if_then_else(");
+        let _ = f.write_str("= if_then_else(");
+
+
+
         show_hir_expr(f, state, mask);
         let _ = f.write_str(",");
+
+        if op != &syntax::AssignmentOp::Equal {
+          show_hir_expr(f, state, &v);
+        }
+
+        match *op {
+          syntax::AssignmentOp::Equal => {  }
+          syntax::AssignmentOp::Mult => { let _ = f.write_str("*"); }
+          syntax::AssignmentOp::Div => { let _ = f.write_str("/"); }
+          syntax::AssignmentOp::Mod => { let _ = f.write_str("%"); }
+          syntax::AssignmentOp::Add => { let _ = f.write_str("+"); }
+          syntax::AssignmentOp::Sub => { let _ = f.write_str("-"); }
+          syntax::AssignmentOp::LShift => { let _ = f.write_str("<<"); }
+          syntax::AssignmentOp::RShift => { let _ = f.write_str(">>"); }
+          syntax::AssignmentOp::And => { let _ = f.write_str("&"); }
+          syntax::AssignmentOp::Xor => { let _ = f.write_str("^"); }
+          syntax::AssignmentOp::Or => { let _ = f.write_str("|"); }
+        }
         show_hir_expr(f, state, &e);
         let _ = f.write_str(",");
         show_hir_expr(f, state, &v);
         let _ = f.write_str(")");
       } else {
+        show_assignment_op(f, &op);
+        let _ = f.write_str(" ");
+
         show_hir_expr(f, state, &e);
       }
     }
@@ -1614,6 +1637,9 @@ pub fn lower_switch_to_ifs(sst: &hir::SwitchStatement) -> hir::SelectionStatemen
 pub fn show_switch_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SwitchStatement) where F: Write {
 
   if state.output_cxx && state.kind == ShaderKind::Vertex {
+    // XXX: when lowering switches we end up with a mask that has
+    // a bunch of mutually exclusive conditions.
+    // It would be nice if we could fold them together.
     let ifs = lower_switch_to_ifs(sst);
     return show_selection_statement(f, state, &ifs);
   }
