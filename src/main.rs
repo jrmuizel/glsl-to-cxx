@@ -134,6 +134,7 @@ use std::fmt::Write;
 
 use glsl::syntax;
 use crate::hir::{SwitchStatement, SwizzleSelector, SelectionStatement, Statement};
+use std::mem;
 
 pub fn show_identifier<F>(f: &mut F, i: &syntax::Identifier) where F: Write {
   let _ = f.write_str(&i.0);
@@ -1430,9 +1431,18 @@ pub fn show_expression_statement<F>(f: &mut F, state: &mut OutputState, est: &hi
 
 pub fn show_selection_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SelectionStatement) where F: Write {
   if state.output_cxx {
-    state.mask = Some(sst.cond.clone());
+    let previous = state.mask.clone();
+    state.mask = Some(match mem::replace(&mut state.mask, None) {
+      Some(e) => {
+        Box::new(hir::Expr {
+          kind: hir::ExprKind::Binary(syntax::BinaryOp::And, e, sst.cond.clone()),
+          ty: hir::Type::new(hir::TypeKind::Bool)
+        })
+      }
+      None => sst.cond.clone(),
+    });
     show_selection_rest_statement(f, state, &sst.rest);
-    state.mask = None;
+    state.mask = previous;
   } else {
     show_indent(f, state);
     let _ = f.write_str("if (");
