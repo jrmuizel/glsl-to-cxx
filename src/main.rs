@@ -1503,7 +1503,19 @@ fn case_stmts_to_if_stmts(stmts: &Vec<Statement>) -> Option<Box<Statement>> {
     [] => {
       return None
     }
-    _ => panic!("unexpected case structure {:#?}", stmts)
+    stmts => {
+      match stmts.split_last() {
+        Some((hir::Statement::Simple(s), rest)) => {
+          match **s {
+            hir::SimpleStatement::Jump(hir::JumpStatement::Break) => {
+              hir::CompoundStatement{statement_list: rest.to_owned() }
+            }
+            _ => panic!("fall through not supported")
+          }
+        }
+        _ => panic!("unexpected empty")
+      }
+    }
   };
   let stmts = Box::new(hir::Statement::Compound(Box::new(cstmt)));
   Some(stmts)
@@ -1519,43 +1531,60 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
 ) -> hir::SelectionStatement {
   let stmts = case_stmts_to_if_stmts(&case.stmts);
 
+  let cond = match &case.label {
+    hir::CaseLabel::Case(e) => {
+      Some(Box::new(hir::Expr { kind: hir::ExprKind::Binary(syntax::BinaryOp::Equal, head.clone(), e.clone()),
+        ty: hir::Type::new(hir::TypeKind::Bool)}))
+    }
+    hir::CaseLabel::Def => None
+  };
+
+  // if we have two conditions join them
+  let cond = match (previous_condition, cond) {
+    (Some(prev), Some(cond)) => Some(Box::new(hir::Expr {
+      kind: hir::ExprKind::Binary(syntax::BinaryOp::Or, prev, cond),
+      ty: hir::Type::new(hir::TypeKind::Bool)
+    })),
+    (_, cond) => cond
+  };
+
+  /*
+
   // find the next case that's not a default
   let next_case = loop {
     match cases.next() {
       Some(hir::Case { label: hir::CaseLabel::Def, ..}) => { },
       case => break case,
     }
-  };
+  };*/
 
-  let cond = match &case.label {
-    hir::CaseLabel::Case(e) => {
-      Box::new(hir::Expr { kind: hir::ExprKind::Binary(syntax::BinaryOp::Equal, head.clone(), e.clone()),
-        ty: hir::Type::new(hir::TypeKind::Bool)})
+  let (cond, rest) = match (cond, cases.next()) {
+    (None, Some(case)) => {
+      // default so just move on to the next
+      return build_selection(head, case, cases, default, None)
+    },
+    (Some(cond), Some(case)) => {
+      if let Some(stmts) = stmts {
+        (cond, hir::SelectionRestStatement::Else(stmts, Box::new(hir::Statement::Simple(Box::new(hir::SimpleStatement::Selection(build_selection(head, case, cases, default, None)))))))
+      } else {
+        // empty so fall through to the next
+        return build_selection(head, case, cases, default, Some(cond))
+      }
     }
-    hir::CaseLabel::Def => { panic!("defaults should have been filtered early") }
-  };
-
-
-  let cond = match previous_condition {
-    Some(prev) => Box::new(hir::Expr {
-      kind: hir::ExprKind::Binary(syntax::BinaryOp::Or, prev, cond),
-      ty: hir::Type::new(hir::TypeKind::Bool)
-    }),
-    None => cond
-  };
-
-  let rest = if let Some(case) = next_case {
-    if let Some(stmts) = stmts {
-      hir::SelectionRestStatement::Else(stmts, Box::new(hir::Statement::Simple(Box::new(hir::SimpleStatement::Selection(build_selection(head, case, cases, default, None))))))
-    } else {
-      return build_selection(head, case, cases, default, Some(cond))
-    }
-  } else {
-    let stmts = stmts.expect("empty case labels unsupported at the end");
-    // add the default case at the end if we have one
-    match default {
-      Some(default) => hir::SelectionRestStatement::Else(stmts, case_stmts_to_if_stmts(&default.stmts).expect("empty default unsupported")),
-      None => hir::SelectionRestStatement::Statement(stmts)
+    (cond, None) => {
+      let cond = match cond {
+        Some(cond) => cond,
+        None => Box::new(hir::Expr {
+          kind: hir::ExprKind::BoolConst(true),
+          ty: hir::Type::new(hir::TypeKind::Bool)
+        })
+      };
+      let stmts = stmts.expect("empty case labels unsupported at the end");
+      // add the default case at the end if we have one
+      (cond, match default {
+        Some(default) => hir::SelectionRestStatement::Else(stmts, case_stmts_to_if_stmts(&default.stmts).expect("empty default unsupported")),
+        None => hir::SelectionRestStatement::Statement(stmts)
+      })
     }
   };
 
