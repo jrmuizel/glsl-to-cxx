@@ -1376,6 +1376,7 @@ pub fn has_conditional_return(state: &mut OutputState, cst: &hir::CompoundStatem
 }
 
 pub fn show_function_definition<F>(f: &mut F, state: &mut OutputState, fd: &hir::FunctionDefinition) where F: Write {
+  // println!("start {:?}", fd.prototype.name);
   show_function_prototype(f, state, &fd.prototype);
   let _ = f.write_str(" ");
   state.return_type = Some(Box::new(fd.prototype.ty.clone()));
@@ -1400,6 +1401,8 @@ pub fn show_function_definition<F>(f: &mut F, state: &mut OutputState, fd: &hir:
 
   show_indent(f, state);
   let _ = f.write_str("}\n");
+  // println!("end {:?}", fd.prototype.name);
+
   state.return_type = None;
   state.return_declared = false;
 }
@@ -1507,10 +1510,11 @@ pub fn show_selection_rest_statement<F>(f: &mut F, state: &mut OutputState, sst:
   }
 }
 
-fn case_stmts_to_if_stmts(stmts: &Vec<Statement>, last: bool) -> Option<Box<Statement>> {
+fn case_stmts_to_if_stmts(stmts: &Vec<Statement>, last: bool) -> (Option<Box<Statement>>, bool) {
   // Look for jump statements and remove them
   // We currently are pretty strict on the form that the statement
   // list needs to be in. This can be loosened as needed.
+  let mut fallthrough = false;
   let cstmt = match &stmts[..] {
     [hir::Statement::Compound(c)] => {
       match c.statement_list.split_last() {
@@ -1541,7 +1545,7 @@ fn case_stmts_to_if_stmts(stmts: &Vec<Statement>, last: bool) -> Option<Box<Stat
       }
     }
     [] => {
-      return None
+      return (None, true)
     }
     stmts => {
       if last {
@@ -1553,7 +1557,10 @@ fn case_stmts_to_if_stmts(stmts: &Vec<Statement>, last: bool) -> Option<Box<Stat
               hir::SimpleStatement::Jump(hir::JumpStatement::Break) => {
                 hir::CompoundStatement { statement_list: rest.to_owned() }
               }
-              _ => panic!("fall through not supported")
+              _ => {
+                fallthrough = true;
+                hir::CompoundStatement { statement_list: stmts.to_owned() }
+              }
             }
           }
           _ => panic!("unexpected empty")
@@ -1562,7 +1569,7 @@ fn case_stmts_to_if_stmts(stmts: &Vec<Statement>, last: bool) -> Option<Box<Stat
     }
   };
   let stmts = Box::new(hir::Statement::Compound(Box::new(cstmt)));
-  Some(stmts)
+  (Some(stmts), fallthrough)
 }
 
 
@@ -1572,6 +1579,7 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
   mut cases: I,
   default: Option<&hir::Case>,
   previous_condition: Option<Box<hir::Expr>>,
+  previous_stmts: Option<Box<hir::Statement>>
 ) -> hir::SelectionStatement {
 
   let cond = match &case.label {
@@ -1583,12 +1591,12 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
   };
 
   // if we have two conditions join them
-  let cond = match (previous_condition, cond) {
+  let cond = match (&previous_condition, &cond) {
     (Some(prev), Some(cond)) => Some(Box::new(hir::Expr {
-      kind: hir::ExprKind::Binary(syntax::BinaryOp::Or, prev, cond),
+      kind: hir::ExprKind::Binary(syntax::BinaryOp::Or, prev.clone(), cond.clone()),
       ty: hir::Type::new(hir::TypeKind::Bool)
     })),
-    (_, cond) => cond
+    (_, cond) => cond.clone()
   };
 
   /*
@@ -1603,37 +1611,64 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
 
   let (cond, rest) = match (cond, cases.next()) {
     (None, Some(next_case)) => {
+      assert!(previous_stmts.is_none());
       // default so just move on to the next
-      return build_selection(head, next_case, cases, default, None)
+      return build_selection(head, next_case, cases, default, None, None)
     },
     (Some(cond), Some(next_case)) => {
-      let stmts = case_stmts_to_if_stmts(&case.stmts, false);
-      if let Some(stmts) = stmts {
-        (cond, hir::SelectionRestStatement::Else(stmts, Box::new(hir::Statement::Simple(Box::new(hir::SimpleStatement::Selection(build_selection(head, next_case, cases, default, None)))))))
-      } else {
-        // empty so fall through to the next
-        return build_selection(head, next_case, cases, default, Some(cond))
+      assert!(previous_stmts.is_none());
+      let (stmts, fallthrough) = case_stmts_to_if_stmts(&case.stmts, false);
+      match stmts {
+        Some(stmts) if !fallthrough => {
+          (cond, hir::SelectionRestStatement::Else(stmts, Box::new(
+            hir::Statement::Simple(
+              Box::new(
+                hir::SimpleStatement::Selection(
+                  build_selection(head, next_case, cases, default, None, None)))))))
+        },
+        _ => {
+          // empty so fall through to the next
+          return build_selection(head, next_case, cases, default, Some(cond), stmts);
+        }
       }
     }
     (Some(cond), None) => {
       // non-default last
-      let stmts = case_stmts_to_if_stmts(&case.stmts, default.is_none());
+      assert!(previous_stmts.is_none());
+      let (stmts, _) = case_stmts_to_if_stmts(&case.stmts, default.is_none());
       let stmts = stmts.expect("empty case labels unsupported at the end");
       // add the default case at the end if we have one
       (cond, match default {
-        Some(default) => hir::SelectionRestStatement::Else(stmts, case_stmts_to_if_stmts(&default.stmts, true).expect("empty default unsupported")),
+        Some(default) => {
+          let (default_stmts, fallthrough) = case_stmts_to_if_stmts(&default.stmts, true);
+          assert!(!fallthrough);
+          hir::SelectionRestStatement::Else(stmts, default_stmts.expect("empty default unsupported"))
+        },
         None => hir::SelectionRestStatement::Statement(stmts)
       })
     }
     (None, None) => {
       // default, last
+
       assert!(default.is_some());
-      let cond = Box::new(hir::Expr {
-        kind: hir::ExprKind::BoolConst(true),
-        ty: hir::Type::new(hir::TypeKind::Bool)
-      });
-      let stmts = case_stmts_to_if_stmts(&case.stmts, true).expect("empty default unsupported");
-      (cond, hir::SelectionRestStatement::Statement(stmts))
+
+      let (stmts, fallthrough) = case_stmts_to_if_stmts(&case.stmts, true);
+      let stmts = stmts.expect("empty default unsupported");
+      assert!(!fallthrough);
+
+      match previous_stmts {
+        Some(previous_stmts) => {
+          let cond = previous_condition.expect("must have previous condition");
+          (cond, hir::SelectionRestStatement::Else(previous_stmts, stmts))
+        }
+        None => {
+          let cond = Box::new(hir::Expr {
+            kind: hir::ExprKind::BoolConst(true),
+            ty: hir::Type::new(hir::TypeKind::Bool)
+          });
+          (cond, hir::SelectionRestStatement::Statement(stmts))
+        }
+      }
     }
   };
 
@@ -1646,7 +1681,7 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
 pub fn lower_switch_to_ifs(sst: &hir::SwitchStatement) -> hir::SelectionStatement {
   let default = sst.cases.iter().find(|x| x.label == hir::CaseLabel::Def);
   let mut cases = sst.cases.iter();
-  let r = build_selection(&sst.head, cases.next().unwrap(), cases, default, None);
+  let r = build_selection(&sst.head, cases.next().unwrap(), cases, default, None, None);
   r
 }
 
