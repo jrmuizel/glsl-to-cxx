@@ -1234,6 +1234,9 @@ fn promoted_type(lhs: &Type, rhs: &Type) -> Type {
     } else if lhs == &Type::new(TypeKind::Float) &&
         rhs == &Type::new(TypeKind::Double) {
         Type::new(TypeKind::Double)
+    } else if lhs == &Type::new(TypeKind::Int) &&
+        rhs == &Type::new(TypeKind::Double) {
+        Type::new(TypeKind::Double)
     } else if is_vector(&lhs) && (
         rhs == &Type::new(TypeKind::Float) ||
         rhs == &Type::new(TypeKind::Double) ||
@@ -1248,6 +1251,19 @@ fn promoted_type(lhs: &Type, rhs: &Type) -> Type {
     ) {
         // scalars promote to vectors
         rhs.clone()
+    } else if lhs == rhs {
+        lhs.clone()
+    } else if lhs.kind == rhs.kind {
+        if lhs.array_sizes == rhs.array_sizes {
+            // XXX: we need to be able to query the default precision here
+            match (&lhs.precision, &rhs.precision) {
+                (Some(PrecisionQualifier::High), _) => lhs.clone(),
+                (_, Some(PrecisionQualifier::High)) => rhs.clone(),
+                _ => panic!("precision mismatch")
+            }
+        } else {
+            panic!("array size mismatch")
+        }
     } else {
         assert_eq!(lhs, rhs);
         lhs.clone()
