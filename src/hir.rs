@@ -1211,12 +1211,12 @@ fn compatible_type(lhs: &Type, rhs: &Type) -> bool {
         lhs == &Type::new(TypeKind::Float) {
         true
     } else if rhs == &Type::new(TypeKind::Int) &&
-        lhs == &Type::new(TypeKind::Float) || lhs == &Type::new(TypeKind::Double) {
+        (lhs == &Type::new(TypeKind::Float) || lhs == &Type::new(TypeKind::Double)) {
         true
-    } else if rhs == &Type::new(TypeKind::Float) || rhs == &Type::new(TypeKind::Double) &&
+    } else if (rhs == &Type::new(TypeKind::Float) || rhs == &Type::new(TypeKind::Double)) &&
         lhs == &Type::new(TypeKind::Int) {
         true
-    } else if rhs == &Type::new(TypeKind::Vec2) || rhs == &Type::new(TypeKind::DVec2) &&
+    } else if (rhs == &Type::new(TypeKind::Vec2) || rhs == &Type::new(TypeKind::DVec2)) &&
         lhs == &Type::new(TypeKind::IVec2) {
         true
     } else if rhs == &Type::new(TypeKind::IVec2) &&
