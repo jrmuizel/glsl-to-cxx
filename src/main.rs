@@ -1544,16 +1544,20 @@ fn case_stmts_to_if_stmts(stmts: &Vec<Statement>, last: bool) -> Option<Box<Stat
       return None
     }
     stmts => {
-      match stmts.split_last() {
-        Some((hir::Statement::Simple(s), rest)) => {
-          match **s {
-            hir::SimpleStatement::Jump(hir::JumpStatement::Break) => {
-              hir::CompoundStatement{statement_list: rest.to_owned() }
+      if last {
+        hir::CompoundStatement { statement_list: stmts.to_owned() }
+      } else {
+        match stmts.split_last() {
+          Some((hir::Statement::Simple(s), rest)) => {
+            match **s {
+              hir::SimpleStatement::Jump(hir::JumpStatement::Break) => {
+                hir::CompoundStatement { statement_list: rest.to_owned() }
+              }
+              _ => panic!("fall through not supported")
             }
-            _ => panic!("fall through not supported")
           }
+          _ => panic!("unexpected empty")
         }
-        _ => panic!("unexpected empty")
       }
     }
   };
@@ -1577,7 +1581,7 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
     }
     hir::CaseLabel::Def => None
   };
-  
+
   // if we have two conditions join them
   let cond = match (previous_condition, cond) {
     (Some(prev), Some(cond)) => Some(Box::new(hir::Expr {
@@ -1611,14 +1615,8 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
         return build_selection(head, next_case, cases, default, Some(cond))
       }
     }
-    (cond, None) => {
-      let cond = match cond {
-        Some(cond) => cond,
-        None => Box::new(hir::Expr {
-          kind: hir::ExprKind::BoolConst(true),
-          ty: hir::Type::new(hir::TypeKind::Bool)
-        })
-      };
+    (Some(cond), None) => {
+      // non-default last
       let stmts = case_stmts_to_if_stmts(&case.stmts, default.is_none());
       let stmts = stmts.expect("empty case labels unsupported at the end");
       // add the default case at the end if we have one
@@ -1626,6 +1624,16 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
         Some(default) => hir::SelectionRestStatement::Else(stmts, case_stmts_to_if_stmts(&default.stmts, true).expect("empty default unsupported")),
         None => hir::SelectionRestStatement::Statement(stmts)
       })
+    }
+    (None, None) => {
+      // default, last
+      assert!(default.is_some());
+      let cond = Box::new(hir::Expr {
+        kind: hir::ExprKind::BoolConst(true),
+        ty: hir::Type::new(hir::TypeKind::Bool)
+      });
+      let stmts = case_stmts_to_if_stmts(&case.stmts, true).expect("empty default unsupported");
+      (cond, hir::SelectionRestStatement::Statement(stmts))
     }
   };
 
