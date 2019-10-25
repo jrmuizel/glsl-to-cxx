@@ -1548,23 +1548,21 @@ fn case_stmts_to_if_stmts(stmts: &Vec<Statement>, last: bool) -> (Option<Box<Sta
       return (None, true)
     }
     stmts => {
-      if last {
-        hir::CompoundStatement { statement_list: stmts.to_owned() }
-      } else {
-        match stmts.split_last() {
-          Some((hir::Statement::Simple(s), rest)) => {
-            match **s {
-              hir::SimpleStatement::Jump(hir::JumpStatement::Break) => {
-                hir::CompoundStatement { statement_list: rest.to_owned() }
-              }
-              _ => {
+      match stmts.split_last() {
+        Some((hir::Statement::Simple(s), rest)) => {
+          match **s {
+            hir::SimpleStatement::Jump(hir::JumpStatement::Break) => {
+              hir::CompoundStatement { statement_list: rest.to_owned() }
+            }
+            _ => {
+              if !last {
                 fallthrough = true;
-                hir::CompoundStatement { statement_list: stmts.to_owned() }
               }
+              hir::CompoundStatement { statement_list: stmts.to_owned() }
             }
           }
-          _ => panic!("unexpected empty")
         }
+        _ => panic!("unexpected empty")
       }
     }
   };
@@ -1891,7 +1889,9 @@ pub fn show_preprocessor_extension<F>(f: &mut F, pe: &syntax::PreprocessorExtens
 
 pub fn show_external_declaration<F>(f: &mut F, state: &mut OutputState, ed: &hir::ExternalDeclaration) where F: Write {
   match *ed {
-    hir::ExternalDeclaration::Preprocessor(ref pp) => show_preprocessor(f, pp),
+    hir::ExternalDeclaration::Preprocessor(ref pp) => {
+      if !state.output_cxx { show_preprocessor(f, pp) }
+    },
   hir::ExternalDeclaration::FunctionDefinition(ref fd) => show_function_definition(f, state, fd),
   hir::ExternalDeclaration::Declaration(ref d) => show_declaration(f, state, d)
   }
