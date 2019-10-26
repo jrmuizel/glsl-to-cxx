@@ -647,8 +647,10 @@ pub fn show_array_spec<F>(f: &mut F, a: &syntax::ArraySpecifier) where F: Write 
 pub fn show_identifier_and_type<F>(f: &mut F, state: &OutputState, ident: &syntax::Identifier, ty: &hir::Type) where F: Write {
   let _ = write!(f, "{}", ident);
 
-  if let Some(ref arr_spec) = ty.array_sizes {
-    show_array_sizes(f, state, &arr_spec);
+  if !state.output_cxx {
+    if let Some(ref arr_spec) = ty.array_sizes {
+      show_array_sizes(f, state, &arr_spec);
+    }
   }
 }
 
