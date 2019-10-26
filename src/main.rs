@@ -8,6 +8,7 @@ mod hir;
 use hir::State;
 use hir::Type;
 use std::io::Read;
+use std::cell::Cell;
 
 #[derive(PartialEq, Eq)]
 enum ShaderKind {
@@ -71,6 +72,7 @@ fn main() {
     return_type: None,
     return_declared: false,
     flat: false,
+    is_lval: Cell::new(false),
     kind: ShaderKind::Vertex,
   };
 
@@ -118,6 +120,7 @@ pub struct OutputState {
   return_type: Option<Box<hir::Type>>,
   return_declared: bool,
   flat: bool,
+  is_lval: Cell<bool>,
   kind: ShaderKind
 }
 
@@ -879,7 +882,9 @@ pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where 
       }
     }
     hir::ExprKind::Assignment(ref v, ref op, ref e) => {
+      state.is_lval.set(true);
       show_hir_expr(f, state, &v);
+      state.is_lval.set(false);
       let _ = f.write_str(" ");
 
       if let Some(mask) = &state.mask {
@@ -965,7 +970,11 @@ pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where 
       if state.output_cxx {
         let _ = f.write_str("(");
         show_hir_expr(f, state, &e);
-        let _ = f.write_str(").sel(");
+        if state.is_lval.get() && s.components.len() > 1 {
+          let _ = f.write_str(").lsel(");
+        } else {
+          let _ = f.write_str(").sel(");
+        }
         let _ = f.write_str(&s.to_args());
         let _ = f.write_str(")");
       } else {
