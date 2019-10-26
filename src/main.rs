@@ -1408,6 +1408,10 @@ pub fn show_function_definition<F>(f: &mut F, state: &mut OutputState, fd: &hir:
   for st in &fd.statement.statement_list {
     show_statement(f, state, st);
   }
+  if state.return_declared {
+    show_indent(f, state);
+    f.write_str(" return ret;\n");
+  }
   state.outdent();
 
   show_indent(f, state);
@@ -1832,7 +1836,7 @@ pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpS
           let _ = f.write_str(");\n");
         } else {
           if state.return_declared {
-            let _  = f.write_str("return if_then_else(ret_mask, ");
+            let _  = f.write_str("ret = if_then_else(ret_mask, ");
             show_hir_expr(f, state, e);
             let _  = f.write_str(", ret);\n");
           } else {
