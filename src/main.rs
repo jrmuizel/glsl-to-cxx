@@ -1812,7 +1812,19 @@ pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpS
   match *j {
     hir::JumpStatement::Continue => { let _ = f.write_str("continue;\n"); }
     hir::JumpStatement::Break => { let _ = f.write_str("break;\n"); }
-    hir::JumpStatement::Discard => { let _ = f.write_str("discard;\n"); }
+    hir::JumpStatement::Discard => {
+      if state.output_cxx {
+        if let Some(mask) = &state.mask {
+          let _ = f.write_str("isPixelDiscarded = if_then_else(");
+          show_hir_expr(f, state, mask);
+          let _ = f.write_str(", true, isPixelDiscarded);\n");
+        } else {
+          let _ = f.write_str("isPixelDiscarded = true;\n");
+        }
+      } else {
+        let _ = f.write_str("discard;\n");
+      }
+    }
     hir::JumpStatement::Return(ref e) => {
       if state.output_cxx {
         if state.mask.is_some() {
@@ -1913,6 +1925,9 @@ pub fn show_external_declaration<F>(f: &mut F, state: &mut OutputState, ed: &hir
 }
 
 pub fn show_translation_unit<F>(f: &mut F, state: &mut OutputState, tu: &hir::TranslationUnit) where F: Write {
+  if state.output_cxx {
+    let _  = f.write_str("Bool isPixelDiscarded = false;\n");
+  }
   for ed in &(tu.0).0 {
     show_external_declaration(f, state, ed);
   }
