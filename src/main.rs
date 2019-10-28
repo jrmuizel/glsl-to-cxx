@@ -843,6 +843,27 @@ impl SwizzelSelectorExt for SwizzleSelector {
   }
 }
 
+fn is_output(expr: &hir::Expr, state: &OutputState) -> bool {
+  match &expr.kind {
+    hir::ExprKind::Variable(i) => {
+      match state.hir.sym(*i).decl {
+        hir::SymDecl::Variable(storage,..) => {
+          match storage {
+            hir::StorageClass::Out => return true,
+            _ => {}
+          }
+        }
+        _ => { panic!("should be variable") }
+      }
+    }
+    hir::ExprKind::SwizzleSelector(e, ..) => {
+      return is_output(e, state);
+    }
+    _ => {}
+  };
+  false
+}
+
 pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where F: Write {
   match expr.kind {
     hir::ExprKind::Variable(ref i) => show_sym(f, state, i),
@@ -887,14 +908,16 @@ pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where 
       state.is_lval.set(true);
       show_hir_expr(f, state, &v);
       state.is_lval.set(false);
+      let is_output = is_output(v, state);
       let _ = f.write_str(" ");
 
       if let Some(mask) = &state.mask {
         let _ = f.write_str("= if_then_else(");
 
-
-
         show_hir_expr(f, state, mask);
+        if is_output {
+          let _ = f.write_str("&ret_mask");
+        }
         let _ = f.write_str(",");
 
         if op != &syntax::AssignmentOp::Equal {
@@ -919,10 +942,35 @@ pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where 
         show_hir_expr(f, state, &v);
         let _ = f.write_str(")");
       } else {
-        show_assignment_op(f, &op);
-        let _ = f.write_str(" ");
+        if is_output && state.return_declared {
+          let _ = f.write_str("= if_then_else(ret_mask,");
 
-        show_hir_expr(f, state, &e);
+          if op != &syntax::AssignmentOp::Equal {
+            show_hir_expr(f, state, &v);
+          }
+
+          match *op {
+            syntax::AssignmentOp::Equal => {  }
+            syntax::AssignmentOp::Mult => { let _ = f.write_str("*"); }
+            syntax::AssignmentOp::Div => { let _ = f.write_str("/"); }
+            syntax::AssignmentOp::Mod => { let _ = f.write_str("%"); }
+            syntax::AssignmentOp::Add => { let _ = f.write_str("+"); }
+            syntax::AssignmentOp::Sub => { let _ = f.write_str("-"); }
+            syntax::AssignmentOp::LShift => { let _ = f.write_str("<<"); }
+            syntax::AssignmentOp::RShift => { let _ = f.write_str(">>"); }
+            syntax::AssignmentOp::And => { let _ = f.write_str("&"); }
+            syntax::AssignmentOp::Xor => { let _ = f.write_str("^"); }
+            syntax::AssignmentOp::Or => { let _ = f.write_str("|"); }
+          }
+          show_hir_expr(f, state, &e);
+          let _ = f.write_str(",");
+          show_hir_expr(f, state, &v);
+          let _ = f.write_str(")");
+        } else {
+          show_assignment_op(f, &op);
+          let _ = f.write_str(" ");
+          show_hir_expr(f, state, &e);
+        }
       }
     }
     hir::ExprKind::Bracket(ref e, ref indx) => {
@@ -1402,15 +1450,21 @@ pub fn show_function_definition<F>(f: &mut F, state: &mut OutputState, fd: &hir:
     f.write_str("I32 ret_mask = ~0;\n");
     // XXX: the cloning here is bad
     show_indent(f, state);
-    show_type(f, state, &state.return_type.clone().unwrap());
-    f.write_str(" ret;\n");
+    if fd.prototype.ty != Type::new(hir::TypeKind::Void) {
+      show_type(f, state, &state.return_type.clone().unwrap());
+      f.write_str(" ret;\n");
+    }
   }
   for st in &fd.statement.statement_list {
     show_statement(f, state, st);
   }
   if state.return_declared {
     show_indent(f, state);
-    f.write_str(" return ret;\n");
+    if fd.prototype.ty == Type::new(hir::TypeKind::Void) {
+      f.write_str("return;\n");
+    } else {
+      f.write_str("return ret;\n");
+    }
   }
   state.outdent();
 
@@ -1817,6 +1871,9 @@ pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpS
         if let Some(mask) = &state.mask {
           let _ = f.write_str("isPixelDiscarded = if_then_else(");
           show_hir_expr(f, state, mask);
+          if state.return_declared {
+            let _ = f.write_str("&ret_mask");
+          }
           let _ = f.write_str(", true, isPixelDiscarded);\n");
         } else {
           let _ = f.write_str("isPixelDiscarded = true;\n");
@@ -1826,41 +1883,57 @@ pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpS
       }
     }
     hir::JumpStatement::Return(ref e) => {
-      if state.output_cxx {
-        if state.mask.is_some() {
-          if !state.return_declared {
-            // XXX: if we're nested then this declaration won't work
-            f.write_str("I32 ret_mask = ~0;\n");
+      if let Some(e) = e {
+        if state.output_cxx {
+          if state.mask.is_some() {
+            if !state.return_declared {
+              // XXX: if we're nested then this declaration won't work
+              f.write_str("I32 ret_mask = ~0;\n");
+              // XXX: the cloning here is bad
+              show_type(f, state, &state.return_type.clone().unwrap());
+              f.write_str(" ret;\n");
+              state.return_declared = true;
+            }
             // XXX: the cloning here is bad
-            show_type(f, state, &state.return_type.clone().unwrap());
-            f.write_str(" ret;\n");
-            state.return_declared = true;
-          }
-          // XXX: the cloning here is bad
-          let _ = f.write_str("ret = if_then_else(ret_mask & (");
-          show_hir_expr(f, state, &state.mask.clone().unwrap());
-          let _ = f.write_str("), ");
-          show_hir_expr(f, state, e);
-          let _ = f.write_str(", ret);\n");
-          show_indent(f, state);
-          let _ = f.write_str("ret_mask &= ~(");
-          show_hir_expr(f, state, &state.mask.clone().unwrap());
-          let _ = f.write_str(");\n");
-        } else {
-          if state.return_declared {
-            let _  = f.write_str("ret = if_then_else(ret_mask, ");
+            let _ = f.write_str("ret = if_then_else(ret_mask & (");
+            show_hir_expr(f, state, &state.mask.clone().unwrap());
+            let _ = f.write_str("), ");
             show_hir_expr(f, state, e);
-            let _  = f.write_str(", ret);\n");
+            let _ = f.write_str(", ret);\n");
+            show_indent(f, state);
+            let _ = f.write_str("ret_mask &= ~(");
+            show_hir_expr(f, state, &state.mask.clone().unwrap());
+            let _ = f.write_str(");\n");
           } else {
-            let _ = f.write_str("return ");
-            show_hir_expr(f, state, e);
-            let _ = f.write_str(";\n");
+            if state.return_declared {
+              let _ = f.write_str("ret = if_then_else(ret_mask, ");
+              show_hir_expr(f, state, e);
+              let _ = f.write_str(", ret);\n");
+            } else {
+              let _ = f.write_str("return ");
+              show_hir_expr(f, state, e);
+              let _ = f.write_str(";\n");
+            }
           }
+        } else {
+          let _ = f.write_str("return ");
+          show_hir_expr(f, state, e);
+          let _ = f.write_str(";\n");
         }
       } else {
-        let _ = f.write_str("return ");
-        show_hir_expr(f, state, e);
-        let _ = f.write_str(";\n");
+        if state.output_cxx {
+          if state.mask.is_some() {
+            show_indent(f, state);
+            let _ = f.write_str("ret_mask &= ~(");
+            show_hir_expr(f, state, &state.mask.clone().unwrap());
+            let _ = f.write_str(");\n");
+            state.return_declared = true;
+          } else {
+            let _ = f.write_str("return;\n");
+          }
+        } else {
+          let _ = f.write_str("return;\n");
+        }
       }
     }
   }
@@ -1870,7 +1943,8 @@ pub fn show_preprocessor<F>(f: &mut F, pp: &syntax::Preprocessor) where F: Write
   match *pp {
     syntax::Preprocessor::Define(ref pd) => show_preprocessor_define(f, pd),
     syntax::Preprocessor::Version(ref pv) => show_preprocessor_version(f, pv),
-    syntax::Preprocessor::Extension(ref pe) => show_preprocessor_extension(f, pe)
+    syntax::Preprocessor::Extension(ref pe) => show_preprocessor_extension(f, pe),
+    _ => panic!()
   }
 }
 
