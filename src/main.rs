@@ -21,6 +21,7 @@ fn main() {
   let file = std::env::args().nth(1).unwrap();
 
   let mut contents = String::new();
+  let is_frag = file.contains("frag");
   std::fs::File::open(file).unwrap().read_to_string(&mut contents).unwrap();
   let r = TranslationUnit::parse(contents);
 
@@ -72,12 +73,10 @@ fn main() {
     return_type: None,
     return_declared: false,
     flat: false,
+    is_const: false,
     is_lval: Cell::new(false),
-    kind: ShaderKind::Vertex,
+    kind: if is_frag { ShaderKind::Fragment } else { ShaderKind::Vertex },
   };
-
-
-
 
   show_translation_unit(&mut output_glsl, &mut state, &hir);
 
@@ -120,6 +119,7 @@ pub struct OutputState {
   return_type: Option<Box<hir::Type>>,
   return_declared: bool,
   flat: bool,
+  is_const: bool,
   is_lval: Cell<bool>,
   kind: ShaderKind
 }
@@ -229,6 +229,9 @@ pub fn show_sym_decl<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F
     hir::SymDecl::Variable(storage, ..) => {
       if !state.output_cxx {
         show_storage_class(f, storage)
+      }
+      if storage == &hir::StorageClass::Const {
+        let _ = f.write_str("const ");
       }
       let mut name = sym.name.as_str();
       if state.output_cxx {
@@ -427,7 +430,7 @@ pub fn show_type_kind<F>(f: &mut F, state: &OutputState, t: &hir::TypeKind) wher
     }
     hir::TypeKind::Int => {
       if state.output_cxx {
-        if state.in_loop_declaration || (state.flat && state.kind == ShaderKind::Fragment) {
+        if state.in_loop_declaration || (state.flat && state.kind == ShaderKind::Fragment) || state.is_const {
           let _ = f.write_str("int");
         } else {
           let _ = f.write_str("I32");
@@ -864,6 +867,28 @@ fn is_output(expr: &hir::Expr, state: &OutputState) -> bool {
   false
 }
 
+fn constant_across_all_lanes(e: &hir::Expr, state: &OutputState) -> bool {
+  /*
+  match &e.kind {
+    hir::ExprKind::Variable(i) => {
+      match state.hir.sym(*i).decl {
+        hir::SymDecl::Variable(storage,..) => {
+          match storage {
+            hir::StorageClass::Out => return true,
+            _ => {}
+          }
+        }
+        _ => { panic!("should be variable") }
+      }
+    }
+    hir::ExprKind::SwizzleSelector(e, ..) => {
+      return constant_across_all_lanes(e, state);
+    }
+    _ => {}
+  };*/
+  false
+}
+
 pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where F: Write {
   match expr.kind {
     hir::ExprKind::Variable(ref i) => show_sym(f, state, i),
@@ -914,9 +939,12 @@ pub fn show_hir_expr<F>(f: &mut F, state: &OutputState, expr: &hir::Expr) where 
       if let Some(mask) = &state.mask {
         let _ = f.write_str("= if_then_else(");
 
-        show_hir_expr(f, state, mask);
-        if is_output {
-          let _ = f.write_str("&ret_mask");
+        if is_output && state.return_declared {
+          let _ = f.write_str("(");
+          show_hir_expr(f, state, mask);
+          let _ = f.write_str(")&ret_mask");
+        } else {
+          show_hir_expr(f, state, mask);
         }
         let _ = f.write_str(",");
 
@@ -1342,13 +1370,24 @@ pub fn show_single_declaration_glsl<F>(f: &mut F, state: &mut OutputState, d: &h
     let _ = f.write_str(" = ");
     show_initializer(f, state, initializer);
   }
-
 }
+
+
 
 pub fn show_single_declaration_cxx<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclaration) where F: Write {
   state.flat = false;
   if let Some(ref qual) = d.qualifier {
     state.flat = qual.qualifiers.0.iter().flat_map(|q| match q { hir::TypeQualifierSpec::Interpolation(Flat) => Some(()), _ => None}).next().is_some();
+  }
+  state.is_const = false;
+  let sym = state.hir.sym(d.name);
+  match &sym.decl {
+    hir::SymDecl::Variable(storage, _) => {
+      if storage == &hir::StorageClass::Const {
+        state.is_const = true;
+      }
+    }
+    _ => panic!()
   }
 
   if let Some(ref array) = d.ty.array_sizes {
@@ -1369,7 +1408,7 @@ pub fn show_single_declaration_cxx<F>(f: &mut F, state: &mut OutputState, d: &hi
     let _ = f.write_str(" = ");
     show_initializer(f, state, initializer);
   }
-
+  state.is_const = false;
 }
 
 pub fn show_single_declaration_no_type<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclarationNoType) where F: Write {
@@ -1753,8 +1792,7 @@ pub fn lower_switch_to_ifs(sst: &hir::SwitchStatement) -> hir::SelectionStatemen
 }
 
 pub fn show_switch_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SwitchStatement) where F: Write {
-
-  if state.output_cxx && state.kind == ShaderKind::Vertex {
+  if state.output_cxx {
     // XXX: when lowering switches we end up with a mask that has
     // a bunch of mutually exclusive conditions.
     // It would be nice if we could fold them together.
@@ -1869,8 +1907,9 @@ pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpS
     hir::JumpStatement::Discard => {
       if state.output_cxx {
         if let Some(mask) = &state.mask {
-          let _ = f.write_str("isPixelDiscarded = if_then_else(");
+          let _ = f.write_str("isPixelDiscarded = if_then_else((");
           show_hir_expr(f, state, mask);
+          let _ = f.write_str(")");
           if state.return_declared {
             let _ = f.write_str("&ret_mask");
           }
