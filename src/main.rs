@@ -43,7 +43,7 @@ fn main() {
     match i {
       hir::ExternalDeclaration::Declaration(hir::Declaration::InitDeclaratorList(ref d))  => {
         match &state.sym(d.head.name).decl {
-          hir::SymDecl::Global(storage, _) => {
+          hir::SymDecl::Global(storage, ..) => {
             match storage {
               hir::StorageClass::Uniform => {
                 uniforms.push(d.head.name);
@@ -165,7 +165,7 @@ pub fn show_sym<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Wri
 pub fn show_variable<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F: Write {
   let sym = state.hir.sym(*i);
   match &sym.decl {
-    hir::SymDecl::Global(_, ty) => {
+    hir::SymDecl::Global(.., ty) => {
       show_type(f, state, ty);
       let _ = f.write_str(" ");
       let mut name = sym.name.as_str();
@@ -1405,7 +1405,7 @@ pub fn show_single_declaration_cxx<F>(f: &mut F, state: &mut OutputState, d: &hi
   state.is_const = false;
   let sym = state.hir.sym(d.name);
   match &sym.decl {
-    hir::SymDecl::Global(storage, _) => {
+    hir::SymDecl::Global(storage, ..) => {
       if storage == &hir::StorageClass::Const {
         state.is_const = true;
       }
