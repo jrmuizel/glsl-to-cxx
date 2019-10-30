@@ -716,7 +716,6 @@ pub fn show_type_qualifier<F>(f: &mut F, q: &hir::TypeQualifier) where F: Write 
 pub fn show_type_qualifier_spec<F>(f: &mut F, q: &hir::TypeQualifierSpec) where F: Write {
   match *q {
     hir::TypeQualifierSpec::Layout(ref l) => show_layout_qualifier(f, &l),
-    hir::TypeQualifierSpec::Interpolation(ref i) => show_interpolation_qualifier(f, &i),
     hir::TypeQualifierSpec::Parameter(ref p) => panic!(),
     hir::TypeQualifierSpec::Memory(ref m) => panic!(),
     hir::TypeQualifierSpec::Invariant => { let _ = f.write_str("invariant"); },
@@ -1362,15 +1361,14 @@ pub fn show_single_declaration_glsl<F>(f: &mut F, state: &mut OutputState, d: &h
 
   let sym = state.hir.sym(d.name);
   match &sym.decl {
-    hir::SymDecl::Global(storage, ..) => {
-      if !state.output_cxx {
-        show_storage_class(f, storage)
+    hir::SymDecl::Global(storage, interpolation, ..) => {
+      show_storage_class(f, storage);
+      if let Some(i) = interpolation {
+        show_interpolation_qualifier(f, i);
       }
     }
     hir::SymDecl::Local(storage, ..) => {
-      if !state.output_cxx {
-        show_storage_class(f, storage)
-      }
+      show_storage_class(f, storage)
     }
     _ => panic!("should be variable")
   }
@@ -1399,15 +1397,16 @@ pub fn show_single_declaration_glsl<F>(f: &mut F, state: &mut OutputState, d: &h
 
 pub fn show_single_declaration_cxx<F>(f: &mut F, state: &mut OutputState, d: &hir::SingleDeclaration) where F: Write {
   state.flat = false;
-  if let Some(ref qual) = d.qualifier {
-    state.flat = qual.qualifiers.0.iter().flat_map(|q| match q { hir::TypeQualifierSpec::Interpolation(Flat) => Some(()), _ => None}).next().is_some();
-  }
   state.is_const = false;
+
   let sym = state.hir.sym(d.name);
   match &sym.decl {
-    hir::SymDecl::Global(storage, ..) => {
+    hir::SymDecl::Global(storage, interpolation,..) => {
       if storage == &hir::StorageClass::Const {
         state.is_const = true;
+      }
+      if let Some(syntax::InterpolationQualifier::Flat) = interpolation {
+        state.flat = true;
       }
     }
     hir::SymDecl::Local(storage, _) => {
