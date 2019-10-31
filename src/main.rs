@@ -1818,8 +1818,17 @@ pub fn lower_switch_to_ifs(sst: &hir::SwitchStatement) -> hir::SelectionStatemen
   r
 }
 
+fn is_flat(state: &hir::State, e: &hir::Expr) -> bool {
+  if let hir::ExprKind::Variable(sym) = e.kind {
+    if let hir::SymDecl::Global(_, Some(syntax::InterpolationQualifier::Flat), _) = state.sym(sym).decl {
+      return true
+    }
+  }
+  return false
+}
+
 pub fn show_switch_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SwitchStatement) where F: Write {
-  if state.output_cxx {
+  if state.output_cxx && !(is_flat(&state.hir, &sst.head) && state.kind == ShaderKind::Fragment) {
     // XXX: when lowering switches we end up with a mask that has
     // a bunch of mutually exclusive conditions.
     // It would be nice if we could fold them together.
