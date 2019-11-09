@@ -1827,6 +1827,15 @@ fn is_flat(state: &hir::State, e: &hir::Expr) -> bool {
   return false
 }
 
+fn is_declaration(stmt: &hir::Statement) -> bool {
+  if let hir::Statement::Simple(s) = stmt {
+    if let hir::SimpleStatement::Declaration(..) = **s {
+      return true;
+    }
+  }
+  return false;
+}
+
 pub fn show_switch_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::SwitchStatement) where F: Write {
   if state.output_cxx && !(is_flat(&state.hir, &sst.head) && state.kind == ShaderKind::Fragment) {
     // XXX: when lowering switches we end up with a mask that has
@@ -1845,9 +1854,26 @@ pub fn show_switch_statement<F>(f: &mut F, state: &mut OutputState, sst: &hir::S
   for case in &sst.cases {
     show_case_label(f, state, &case.label);
     state.indent();
+
+    let has_declaration = case.stmts.iter().any(|x| is_declaration(x));
+    // glsl allows declarations in switch statements while C requires them to be
+    // in a compound statement. If we have a declaration wrap the statements in an block.
+    // This will break some glsl shaders but keeps the saner ones working
+    if has_declaration {
+      show_indent(f, state);
+      let _ = f.write_str("{\n");
+      state.indent();
+    }
     for st in &case.stmts {
       show_statement(f, state, st);
     }
+
+    if has_declaration {
+      show_indent(f, state);
+      let _ = f.write_str("}\n");
+      state.outdent();
+    }
+
     state.outdent();
   }
   state.outdent();
