@@ -22,7 +22,7 @@ fn main() {
 
   let mut contents = String::new();
   let is_frag = file.contains("frag");
-  std::fs::File::open(file).unwrap().read_to_string(&mut contents).unwrap();
+  std::fs::File::open(&file).unwrap().read_to_string(&mut contents).unwrap();
   let r = TranslationUnit::parse(contents);
 
   //println!("{:#?}", r);
@@ -38,6 +38,8 @@ fn main() {
 
   let mut uniforms = Vec::new();
   let mut inputs = Vec::new();
+
+  
 
   for i in &hir {
     match i {
@@ -84,21 +86,30 @@ fn main() {
   state.output_cxx = true;
   let mut output_cxx = String::new();
 
-  write!(&mut output_cxx, "/* uniforms\n");
-  for i in uniforms {
-    show_variable(&mut output_cxx, &mut state, &i);
-    write!(&mut output_cxx, "\n");
-  }
-  write!(&mut output_cxx, "*/\n");
+
 
   write!(&mut output_cxx, "/* inputs\n");
-  for i in inputs {
+  for i in &inputs {
     show_variable(&mut output_cxx, &mut state, &i);
     write!(&mut output_cxx, "\n");
   }
   write!(&mut output_cxx, "*/\n");
 
+  if state.output_cxx {
+    let name = file.split(".").next().unwrap();
+    write!(&mut output_cxx, "struct {} {{\n", name);
+    write_get_uniform_index(&mut output_cxx, &mut state, &uniforms);
+    write_set_uniform_int(&mut output_cxx, &mut state, &uniforms);
+    write_set_uniform_4f(&mut output_cxx, &mut state, &uniforms);
+    write_set_uniform_matrix4fv(&mut output_cxx, &mut state, &uniforms);
+
+    write_bind_attrib_location(&mut output_cxx, &mut state, &inputs);
+    write_load_attribs(&mut output_cxx, &mut state, &inputs);
+  }
   show_translation_unit(&mut output_cxx, &mut state, &hir);
+  if state.output_cxx {
+    write!(&mut output_cxx, "}};");
+  }
   use std::io::Write;
   let mut fast = std::fs::File::create("ast").unwrap();
   fast.write(ast_glsl.as_bytes());
@@ -107,6 +118,171 @@ fn main() {
 
 
   println!("{}", output_cxx);
+}
+
+fn write_get_uniform_index<F>(f: &mut F, state: &OutputState, uniforms: &[hir::SymRef]) where F: Write {
+  write!(f, "static int get_uniform_location(char *name) {{\n");
+  let mut index = 1;
+  for i in uniforms {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(.., ty) => {
+        write!(f, "if (strcmp(\"{}\", name) == 0) {{ return {}; }}\n", sym.name.as_str(), index);
+        index += 1;
+      }
+      _ => panic!()
+    }
+  }
+  write!(f, "return -1;\n");
+  write!(f, "}}\n");
+}
+
+fn int_compatible(ty: hir::TypeKind) -> bool {
+  match ty {
+    hir::TypeKind::Int => true,
+    _ => false
+  }
+}
+
+fn float4_compatible(ty: hir::TypeKind) -> bool {
+  match ty {
+    _ => false
+  }
+}
+
+fn matrix4_compatible(ty: hir::TypeKind) -> bool {
+  match ty {
+    _ => false
+  }
+}
+
+fn write_set_uniform_int<F>(f: &mut F, state: &OutputState, uniforms: &[hir::SymRef]) where F: Write {
+  write!(f, "void set_uniform_int(int index, int value) {{\n");
+  let mut index = 1;
+  for i in uniforms {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(.., ty) => {
+        let name = sym.name.as_str();
+        write!(f, "if (index == {}) {{\n", index);
+        if int_compatible(ty.kind.clone()) {
+          write!(f, "{} = {}(value);\n", name, type_name(state, ty));
+        } else {
+          write!(f, "assert(0); // {}\n", name);
+        }
+        write!(f, "}}\n");
+        index += 1;
+      }
+      _ => panic!()
+    }
+  }
+  write!(f, "}}\n");
+}
+
+fn write_set_uniform_4f<F>(f: &mut F, state: &OutputState, uniforms: &[hir::SymRef]) where F: Write {
+  write!(f, "void set_uniform_4f(int index, float *value) {{\n");
+  let mut index = 1;
+  for i in uniforms {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(.., ty) => {
+        let name = sym.name.as_str();
+        write!(f, "if (index == {}) {{\n", index);
+        if float4_compatible(ty.kind.clone()) {
+          write!(f, "{} = {}(value);\n", name, type_name(state, ty));
+        } else {
+          write!(f, "assert(0); // {}\n", name);
+        }
+        write!(f, "}}\n");
+        index += 1;
+      }
+      _ => panic!()
+    }
+  }
+  write!(f, "}}\n");
+}
+
+fn write_set_uniform_matrix4fv<F>(f: &mut F, state: &OutputState, uniforms: &[hir::SymRef]) where F: Write {
+  write!(f, "void set_uniform_matrix4fv(int index, const float *value) {{\n");
+  let mut index = 1;
+  for i in uniforms {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(.., ty) => {
+        let name = sym.name.as_str();
+        write!(f, "if (index == {}) {{\n", index);
+        if matrix4_compatible(ty.kind.clone()) {
+          write!(f, "{} = {}(value);\n", name, type_name(state, ty));
+        } else {
+          write!(f, "assert(0); // {}\n", name);
+        }
+        write!(f, "}}\n");
+        index += 1;
+      }
+      _ => panic!()
+    }
+  }
+  write!(f, "}}\n");
+}
+
+fn write_bind_attrib_location<F>(f: &mut F, state: &OutputState, attribs: &[hir::SymRef]) where F: Write {
+  let mut index = 1;
+  for i in attribs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(.., ty) => {
+        write!(f, "static inline int {}_location_index;\n", sym.name.as_str());
+        index += 1;
+      }
+      _ => panic!()
+    }
+  }
+
+  write!(f, "static void bind_attrib_location(char *name, int index) {{\n");
+  for i in attribs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(.., ty) => {
+        write!(f, "if (strcmp(\"{}\", name) == 0) {{ {}_location_index = index; }}\n", sym.name.as_str(), sym.name.as_str());
+      }
+      _ => panic!()
+    }
+  }
+  write!(f, "}}\n");
+}
+
+fn scalar_type_name(state: &OutputState, ty: &Type) -> String {
+  let mut result = String::new();
+  show_type(&mut result, state, ty);
+  result += "_scalar";
+  result
+}
+
+fn type_name(state: &OutputState, ty: &Type) -> String {
+  let mut result = String::new();
+  show_type(&mut result, state, ty);
+  result
+}
+
+
+fn write_load_attribs<F>(f: &mut F, state: &OutputState, attribs: &[hir::SymRef]) where F: Write {
+
+  write!(f, "void load_attribs(VertexAttrib *attribs, int count) {{\n");
+  for i in attribs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(.., ty) => {
+        let name = sym.name.as_str();
+        write!(f, "{{ VertexAttrib &va = attribs[{}_location_index];\n", name);
+        write!(f, "{} scalar;\n", type_name(state, ty) + "_scalar");
+        write!(f, "memcpy(&scalar, (char*)va.buf + va.stride * count, va.size);\n");
+        write!(f, "{} = {}(scalar);\n", name, type_name(state, ty));
+        write!(f, "}}\n");
+      }
+      _ => panic!()
+    }
+  }
+  write!(f, "}}\n");
 }
 
 pub struct OutputState {
@@ -231,7 +407,7 @@ pub fn show_sym_decl<F>(f: &mut F, state: &OutputState, i: &hir::SymRef) where F
         show_storage_class(f, storage)
       }
       if storage == &hir::StorageClass::Const {
-        let _ = f.write_str("const ");
+        let _ = f.write_str("static constexpr ");
       }
       let mut name = sym.name.as_str();
       if state.output_cxx {
@@ -1246,8 +1422,10 @@ pub fn show_declaration<F>(f: &mut F, state: &mut OutputState, d: &hir::Declarat
   show_indent(f, state);
   match *d {
     hir::Declaration::FunctionPrototype(ref proto) => {
-      show_function_prototype(f, state, &proto);
-      let _ = f.write_str(";\n");
+      if !state.output_cxx {
+        show_function_prototype(f, state, &proto);
+        let _ = f.write_str(";\n");
+      }
     }
     hir::Declaration::InitDeclaratorList(ref list) => {
       show_init_declarator_list(f, state, &list);
@@ -2101,7 +2279,7 @@ pub fn show_external_declaration<F>(f: &mut F, state: &mut OutputState, ed: &hir
 
 pub fn show_translation_unit<F>(f: &mut F, state: &mut OutputState, tu: &hir::TranslationUnit) where F: Write {
   if state.output_cxx {
-    let _  = f.write_str("Bool isPixelDiscarded = false;\n");
+    let _ = f.write_str("Bool isPixelDiscarded = false;\n");
   }
   for ed in &(tu.0).0 {
     show_external_declaration(f, state, ed);
