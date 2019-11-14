@@ -2214,54 +2214,221 @@ pub fn show_jump_statement<F>(f: &mut F, state: &mut OutputState, j: &hir::JumpS
   }
 }
 
-pub fn show_preprocessor<F>(f: &mut F, pp: &syntax::Preprocessor) where F: Write {
-  match *pp {
-    syntax::Preprocessor::Define(ref pd) => show_preprocessor_define(f, pd),
-    syntax::Preprocessor::Version(ref pv) => show_preprocessor_version(f, pv),
-    syntax::Preprocessor::Extension(ref pe) => show_preprocessor_extension(f, pe),
-    _ => panic!()
+pub fn show_path<F>(f: &mut F, path: &syntax::Path)
+  where
+      F: Write,
+{
+  match path {
+    syntax::Path::Absolute(s) => {
+      let _ = write!(f, "<{}>", s);
+    }
+    syntax::Path::Relative(s) => {
+      let _ = write!(f, "\"{}\"", s);
+    }
   }
 }
 
-pub fn show_preprocessor_define<F>(f: &mut F, pd: &syntax::PreprocessorDefine) where F: Write {
-  let _ = write!(f, "#define {} ", pd.name);
-  show_expr(f, panic!());
+pub fn show_preprocessor<F>(f: &mut F, pp: &syntax::Preprocessor)
+  where
+      F: Write,
+{
+  match *pp {
+    syntax::Preprocessor::Define(ref pd) => show_preprocessor_define(f, pd),
+    syntax::Preprocessor::Else => show_preprocessor_else(f),
+    syntax::Preprocessor::ElseIf(ref pei) => show_preprocessor_elseif(f, pei),
+    syntax::Preprocessor::EndIf => show_preprocessor_endif(f),
+    syntax::Preprocessor::Error(ref pe) => show_preprocessor_error(f, pe),
+    syntax::Preprocessor::If(ref pi) => show_preprocessor_if(f, pi),
+    syntax::Preprocessor::IfDef(ref pid) => show_preprocessor_ifdef(f, pid),
+    syntax::Preprocessor::IfNDef(ref pind) => show_preprocessor_ifndef(f, pind),
+    syntax::Preprocessor::Include(ref pi) => show_preprocessor_include(f, pi),
+    syntax::Preprocessor::Line(ref pl) => show_preprocessor_line(f, pl),
+    syntax::Preprocessor::Pragma(ref pp) => show_preprocessor_pragma(f, pp),
+    syntax::Preprocessor::Undef(ref pu) => show_preprocessor_undef(f, pu),
+    syntax::Preprocessor::Version(ref pv) => show_preprocessor_version(f, pv),
+    syntax::Preprocessor::Extension(ref pe) => show_preprocessor_extension(f, pe),
+  }
+}
+
+pub fn show_preprocessor_define<F>(f: &mut F, pd: &syntax::PreprocessorDefine)
+  where
+      F: Write,
+{
+  match *pd {
+    syntax::PreprocessorDefine::ObjectLike {
+      ref ident,
+      ref value,
+    } => {
+      let _ = write!(f, "#define {} {}\n", ident, value);
+    }
+
+    syntax::PreprocessorDefine::FunctionLike {
+      ref ident,
+      ref args,
+      ref value,
+    } => {
+      let _ = write!(f, "#define {}(", ident);
+
+      if !args.is_empty() {
+        let _ = write!(f, "{}", &args[0]);
+
+        for arg in &args[1..args.len()] {
+          let _ = write!(f, ", {}", arg);
+        }
+      }
+
+      let _ = write!(f, ") {}\n", value);
+    }
+  }
+}
+
+pub fn show_preprocessor_else<F>(f: &mut F)
+  where
+      F: Write,
+{
+  let _ = f.write_str("#else\n");
+}
+
+pub fn show_preprocessor_elseif<F>(f: &mut F, pei: &syntax::PreprocessorElseIf)
+  where
+      F: Write,
+{
+  let _ = write!(f, "#elseif {}\n", pei.condition);
+}
+
+pub fn show_preprocessor_error<F>(f: &mut F, pe: &syntax::PreprocessorError)
+  where
+      F: Write,
+{
+  let _ = writeln!(f, "#error {}", pe.message);
+}
+
+pub fn show_preprocessor_endif<F>(f: &mut F)
+  where
+      F: Write,
+{
+  let _ = f.write_str("#endif\n");
+}
+
+pub fn show_preprocessor_if<F>(f: &mut F, pi: &syntax::PreprocessorIf)
+  where
+      F: Write,
+{
+  let _ = write!(f, "#if {}\n", pi.condition);
+}
+
+pub fn show_preprocessor_ifdef<F>(f: &mut F, pid: &syntax::PreprocessorIfDef)
+  where
+      F: Write,
+{
+  let _ = f.write_str("#ifdef ");
+  show_identifier(f, &pid.ident);
   let _ = f.write_str("\n");
 }
 
-pub fn show_preprocessor_version<F>(f: &mut F, pv: &syntax::PreprocessorVersion) where F: Write {
+pub fn show_preprocessor_ifndef<F>(f: &mut F, pind: &syntax::PreprocessorIfNDef)
+  where
+      F: Write,
+{
+  let _ = f.write_str("#ifndef ");
+  show_identifier(f, &pind.ident);
+  let _ = f.write_str("\n");
+}
+
+pub fn show_preprocessor_include<F>(f: &mut F, pi: &syntax::PreprocessorInclude)
+  where
+      F: Write,
+{
+  let _ = f.write_str("#include ");
+  show_path(f, &pi.path);
+  let _ = f.write_str("\n");
+}
+
+pub fn show_preprocessor_line<F>(f: &mut F, pl: &syntax::PreprocessorLine)
+  where
+      F: Write,
+{
+  let _ = write!(f, "#line {}", pl.line);
+  if let Some(source_string_number) = pl.source_string_number {
+    let _ = write!(f, " {}", source_string_number);
+  }
+  let _ = f.write_str("\n");
+}
+
+pub fn show_preprocessor_pragma<F>(f: &mut F, pp: &syntax::PreprocessorPragma)
+  where
+      F: Write,
+{
+  let _ = writeln!(f, "#pragma {}", pp.command);
+}
+
+pub fn show_preprocessor_undef<F>(f: &mut F, pud: &syntax::PreprocessorUndef)
+  where
+      F: Write,
+{
+  let _ = f.write_str("#undef ");
+  show_identifier(f, &pud.name);
+  let _ = f.write_str("\n");
+}
+
+pub fn show_preprocessor_version<F>(f: &mut F, pv: &syntax::PreprocessorVersion)
+  where
+      F: Write,
+{
   let _ = write!(f, "#version {}", pv.version);
 
   if let Some(ref profile) = pv.profile {
     match *profile {
-      syntax::PreprocessorVersionProfile::Core => { let _ = f.write_str(" core"); }
-      syntax::PreprocessorVersionProfile::Compatibility => { let _ = f.write_str(" compatibility"); }
-      syntax::PreprocessorVersionProfile::ES => { let _ = f.write_str(" es"); }
+      syntax::PreprocessorVersionProfile::Core => {
+        let _ = f.write_str(" core");
+      }
+      syntax::PreprocessorVersionProfile::Compatibility => {
+        let _ = f.write_str(" compatibility");
+      }
+      syntax::PreprocessorVersionProfile::ES => {
+        let _ = f.write_str(" es");
+      }
     }
   }
 
   let _ = f.write_str("\n");
 }
 
-pub fn show_preprocessor_extension<F>(f: &mut F, pe: &syntax::PreprocessorExtension) where F: Write {
+pub fn show_preprocessor_extension<F>(f: &mut F, pe: &syntax::PreprocessorExtension)
+  where
+      F: Write,
+{
   let _ = f.write_str("#extension ");
 
   match pe.name {
-    syntax::PreprocessorExtensionName::All => { let _ = f.write_str("all"); }
-    syntax::PreprocessorExtensionName::Specific(ref n) => { let _ = f.write_str(n); }
+    syntax::PreprocessorExtensionName::All => {
+      let _ = f.write_str("all");
+    }
+    syntax::PreprocessorExtensionName::Specific(ref n) => {
+      let _ = f.write_str(n);
+    }
   }
 
   if let Some(ref behavior) = pe.behavior {
     match *behavior {
-      syntax::PreprocessorExtensionBehavior::Require => { let _ = f.write_str(" : require"); }
-      syntax::PreprocessorExtensionBehavior::Enable => { let _ = f.write_str(" : enable"); }
-      syntax::PreprocessorExtensionBehavior::Warn => { let _ = f.write_str(" : warn"); }
-      syntax::PreprocessorExtensionBehavior::Disable => { let _ = f.write_str(" : disable"); }
+      syntax::PreprocessorExtensionBehavior::Require => {
+        let _ = f.write_str(" : require");
+      }
+      syntax::PreprocessorExtensionBehavior::Enable => {
+        let _ = f.write_str(" : enable");
+      }
+      syntax::PreprocessorExtensionBehavior::Warn => {
+        let _ = f.write_str(" : warn");
+      }
+      syntax::PreprocessorExtensionBehavior::Disable => {
+        let _ = f.write_str(" : disable");
+      }
     }
   }
 
   let _ = f.write_str("\n");
 }
+
 
 pub fn show_external_declaration<F>(f: &mut F, state: &mut OutputState, ed: &hir::ExternalDeclaration) where F: Write {
   match *ed {
