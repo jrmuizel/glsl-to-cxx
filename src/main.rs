@@ -137,12 +137,7 @@ fn write_get_uniform_index<F>(f: &mut F, state: &OutputState, uniforms: &[hir::S
   write!(f, "}}\n");
 }
 
-fn int_compatible(ty: hir::TypeKind) -> bool {
-  match ty {
-    hir::TypeKind::Int => true,
-    _ => false
-  }
-}
+
 
 fn float4_compatible(ty: hir::TypeKind) -> bool {
   match ty {
@@ -165,11 +160,12 @@ fn write_set_uniform_int<F>(f: &mut F, state: &OutputState, uniforms: &[hir::Sym
       hir::SymDecl::Global(.., ty) => {
         let name = sym.name.as_str();
         write!(f, "if (index == {}) {{\n", index);
-        if int_compatible(ty.kind.clone()) {
-          write!(f, "{} = {}(value);\n", name, type_name(state, ty));
-        } else {
-          write!(f, "assert(0); // {}\n", name);
-        }
+        match ty.kind {
+          hir::TypeKind::Int => write!(f, "{} = {}(value);\n", name, type_name(state, ty)),
+          hir::TypeKind::Sampler2D => write!(f, "{} = lookup_sampler(value);\n", name),
+          hir::TypeKind::Sampler2DArray => write!(f, "{} = lookup_sampler_array(value);\n", name),
+          _ => write!(f, "assert(0); // {}\n", name),
+        };
         write!(f, "}}\n");
         index += 1;
       }
