@@ -147,6 +147,7 @@ fn float4_compatible(ty: hir::TypeKind) -> bool {
 
 fn matrix4_compatible(ty: hir::TypeKind) -> bool {
   match ty {
+    hir::TypeKind::Mat4 => false,
     _ => false
   }
 }
@@ -249,10 +250,28 @@ fn write_bind_attrib_location<F>(f: &mut F, state: &OutputState, attribs: &[hir:
 }
 
 fn scalar_type_name(state: &OutputState, ty: &Type) -> String {
-  let mut result = String::new();
-  show_type(&mut result, state, ty);
-  result += "_scalar";
-  result
+  let kind_name = match ty.kind {
+    hir::TypeKind::Int => { "int32_t".into() },
+    hir::TypeKind::Float => { "float".into() },
+    _ => {
+      let mut result = String::new();
+      show_type(&mut result, state, ty);
+      result += "_scalar";
+      result
+    }
+  };
+  if let Some(ref array) = ty.array_sizes {
+    let size = match &array.sizes[..] {
+      [size] => size,
+      _ => panic!()
+    };
+    let mut size_string = String::new();
+    show_hir_expr(&mut size_string, state, size);
+
+    format!("std::array<{}, {}>", kind_name, size_string)
+  } else {
+    kind_name
+  }
 }
 
 fn type_name(state: &OutputState, ty: &Type) -> String {
@@ -262,18 +281,21 @@ fn type_name(state: &OutputState, ty: &Type) -> String {
 }
 
 
-fn write_load_attribs<F>(f: &mut F, state: &OutputState, attribs: &[hir::SymRef]) where F: Write {
+fn write_load_attribs<F>(f: &mut F, state: &mut OutputState, attribs: &[hir::SymRef]) where F: Write {
 
   write!(f, "void load_attribs(VertexAttrib *attribs, int count) {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
-      hir::SymDecl::Global(.., ty) => {
+      hir::SymDecl::Global(.., interpolation, ty) => {
         let name = sym.name.as_str();
         write!(f, "{{ VertexAttrib &va = attribs[{}_location_index];\n", name);
-        write!(f, "{} scalar;\n", type_name(state, ty) + "_scalar");
+        write!(f, "{} scalar;\n", scalar_type_name(state, ty));
         write!(f, "memcpy(&scalar, (char*)va.buf + va.stride * count, va.size);\n");
+        let flat = state.flat;
+        state.flat = if let Some(syntax::InterpolationQualifier::Flat) = interpolation { true } else { false };
         write!(f, "{} = {}(scalar);\n", name, type_name(state, ty));
+        state.flat = flat;
         write!(f, "}}\n");
       }
       _ => panic!()
