@@ -163,6 +163,7 @@ fn write_set_uniform_int<F>(f: &mut F, state: &OutputState, uniforms: &[hir::Sym
         match ty.kind {
           hir::TypeKind::Int => write!(f, "{} = {}(value);\n", name, type_name(state, ty)),
           hir::TypeKind::Sampler2D => write!(f, "{} = lookup_sampler(value);\n", name),
+          hir::TypeKind::ISampler2D => write!(f, "{} = lookup_isampler(value);\n", name),
           hir::TypeKind::Sampler2DArray => write!(f, "{} = lookup_sampler_array(value);\n", name),
           _ => write!(f, "assert(0); // {}\n", name),
         };
