@@ -289,12 +289,12 @@ fn write_load_attribs<F>(f: &mut F, state: &mut OutputState, attribs: &[hir::Sym
     match &sym.decl {
       hir::SymDecl::Global(.., interpolation, ty) => {
         let name = sym.name.as_str();
-        write!(f, "{{ VertexAttrib &va = attribs[{}_location_index];\n", name);
-        write!(f, "{} scalar;\n", scalar_type_name(state, ty));
-        write!(f, "memcpy(&scalar, (char*)va.buf + va.stride * count, va.size);\n");
+        write!(f, "{{\n  VertexAttrib &va = attribs[{}_location_index];\n", name);
+        write!(f, "  {} scalar;\n", scalar_type_name(state, ty));
+        write!(f, "  memcpy(&scalar, (char*)va.buf + va.stride * count, va.size);\n");
         let flat = state.flat;
         state.flat = if let Some(syntax::InterpolationQualifier::Flat) = interpolation { true } else { false };
-        write!(f, "{} = {}(scalar);\n", name, type_name(state, ty));
+        write!(f, "  {} = {}(scalar);\n", name, type_name(state, ty));
         state.flat = flat;
         write!(f, "}}\n");
       }
