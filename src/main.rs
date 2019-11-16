@@ -147,7 +147,7 @@ fn float4_compatible(ty: hir::TypeKind) -> bool {
 
 fn matrix4_compatible(ty: hir::TypeKind) -> bool {
   match ty {
-    hir::TypeKind::Mat4 => false,
+    hir::TypeKind::Mat4 => true,
     _ => false
   }
 }
@@ -210,7 +210,7 @@ fn write_set_uniform_matrix4fv<F>(f: &mut F, state: &OutputState, uniforms: &[hi
         let name = sym.name.as_str();
         write!(f, "if (index == {}) {{\n", index);
         if matrix4_compatible(ty.kind.clone()) {
-          write!(f, "{} = {}(value);\n", name, type_name(state, ty));
+          write!(f, "{} = mat4::load_from_ptr(value);\n", name);
         } else {
           write!(f, "assert(0); // {}\n", name);
         }
