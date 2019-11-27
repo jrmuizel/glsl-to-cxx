@@ -124,6 +124,8 @@ fn main() {
       write_load_attribs(&mut state, &inputs);
       write_output_size(&mut state, &outputs);
       write_store_outputs(&mut state, &outputs);
+    } else {
+      write_read_inputs(&mut state, &inputs);
     }
   }
   show_translation_unit(&mut state, &hir);
@@ -365,6 +367,30 @@ fn write_store_outputs(state: &mut OutputState, outputs: &[hir::SymRef]) {
     }
   }
   write!(state, "  }}\n");
+  write!(state, "}}\n");
+}
+
+fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef]) {
+  write!(state, "void read_inputs(char *src) {{\n");
+  for i in inputs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, interpolation, ty, run_class) => {
+        let name = sym.name.as_str();
+        write!(state, "  {{\n");
+        write!(state, "    {} scalar;\n", scalar_type_name(state, ty));
+        write!(state, "    memcpy(&scalar, src, sizeof(get_nth({}, 0)));\n", name);
+        let is_scalar = state.is_scalar.replace(*run_class == hir::RunClass::Scalar);
+        write!(state, "    {} = {}(scalar);\n", name, type_name(state, ty));
+        state.is_scalar.set(is_scalar);
+        // create a temporary so we can take its address
+        write!(state, "    src += sizeof(get_nth({}, 0));\n", name);
+        write!(state, "  }}\n");
+
+      }
+      _ => panic!()
+    }
+  }
   write!(state, "}}\n");
 }
 
