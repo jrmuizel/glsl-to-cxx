@@ -40,8 +40,7 @@ fn main() {
 
   let mut uniforms = Vec::new();
   let mut inputs = Vec::new();
-
-
+  let mut outputs = Vec::new();
 
   for i in &hir {
     match i {
@@ -54,6 +53,9 @@ fn main() {
               }
               hir::StorageClass::In => {
                 inputs.push(d.head.name)
+              }
+              hir::StorageClass::Out => {
+                outputs.push(d.head.name)
               }
               _ => {}
             }
@@ -110,9 +112,10 @@ fn main() {
     write_set_uniform_int(&mut state, &uniforms);
     write_set_uniform_4f(&mut state, &uniforms);
     write_set_uniform_matrix4fv(&mut state, &uniforms);
-
-    write_bind_attrib_location(&mut state, &inputs);
-    write_load_attribs(&mut state, &inputs);
+    if state.kind == ShaderKind::Vertex {
+      write_bind_attrib_location(&mut state, &inputs);
+      write_load_attribs(&mut state, &inputs);
+    }
   }
   show_translation_unit(&mut state, &hir);
   if state.output_cxx {
