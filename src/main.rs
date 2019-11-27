@@ -105,6 +105,13 @@ fn main() {
   }
   write!(state, "*/\n");
 
+  write!(state, "/* outputs\n");
+  for i in &outputs {
+    show_variable(&mut state, &i);
+    write!(state, "\n");
+  }
+  write!(state, "*/\n");
+
   if state.output_cxx {
     let name = file.split(".").next().unwrap();
     write!(state, "struct {} {{\n", name);
@@ -115,6 +122,8 @@ fn main() {
     if state.kind == ShaderKind::Vertex {
       write_bind_attrib_location(&mut state, &inputs);
       write_load_attribs(&mut state, &inputs);
+      write_output_size(&mut state, &outputs);
+      write_store_outputs(&mut state, &outputs);
     }
   }
   show_translation_unit(&mut state, &hir);
@@ -318,6 +327,44 @@ fn write_load_attribs(state: &mut OutputState, attribs: &[hir::SymRef]) {
       _ => panic!()
     }
   }
+  write!(state, "}}\n");
+}
+
+fn write_output_size(state: &mut OutputState, outputs: &[hir::SymRef]) {
+  write!(state, "static size_t output_size() {{\n");
+  write!(state, "  size_t size = 0;\n");
+  for i in outputs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, interpolation, ty, run_class) => {
+        let name = sym.name.as_str();
+        write!(state, "  size += sizeof(get_nth({}, 0));\n", name);
+      }
+      _ => panic!()
+    }
+  }
+  write!(state, "  return size;\n");
+  write!(state, "}}\n");
+}
+
+fn write_store_outputs(state: &mut OutputState, outputs: &[hir::SymRef]) {
+  write!(state, "void store_outputs(void *dest) {{\n");
+  write!(state, "  size_t offset = 0;\n");
+  write!(state, "  for (int n = 0; n < 4; n++) {{\n");
+  for i in outputs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, interpolation, ty, run_class) => {
+        let name = sym.name.as_str();
+        // create a temporary so we can take its address
+        write!(state, "    {{const auto& temp = get_nth({}, n);\n", name);
+        write!(state, "    memcpy((char*)dest + offset, &temp, sizeof(get_nth({}, n)));}}\n", name);
+        write!(state, "    offset += sizeof(get_nth({}, n));\n", name);
+      }
+      _ => panic!()
+    }
+  }
+  write!(state, "  }}\n");
   write!(state, "}}\n");
 }
 
