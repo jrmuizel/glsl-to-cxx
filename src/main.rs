@@ -19,9 +19,13 @@ enum ShaderKind {
 }
 
 fn main() {
+  let vertex_file = std::env::args().nth(1).unwrap();
+  translate_shader(vertex_file);
+  let frag_file = std::env::args().nth(2).unwrap();
+  translate_shader(frag_file);
+}
 
-  let file = std::env::args().nth(1).unwrap();
-
+fn translate_shader(file: String) {
   let mut contents = String::new();
   let is_frag = file.contains("frag");
   std::fs::File::open(&file).unwrap().read_to_string(&mut contents).unwrap();
@@ -113,7 +117,12 @@ fn main() {
   write!(state, "*/\n");
 
   if state.output_cxx {
-    let name = file.split(".").next().unwrap();
+    let name = file.split(".").next().unwrap().to_owned() +
+        match state.kind {
+          ShaderKind::Vertex => "_vert",
+          ShaderKind::Fragment => "_frag",
+        };
+
     write!(state, "struct {} {{\n", name);
     write_get_uniform_index(&mut state, &uniforms);
     write_set_uniform_int(&mut state, &uniforms);
