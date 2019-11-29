@@ -18,6 +18,13 @@ enum ShaderKind {
   Vertex
 }
 
+fn build_uniform_indices(indices: &mut HashMap<String, i32>, state: &hir::State, uniforms: &[hir::SymRef]) {
+  for u in uniforms {
+    let next_index = indices.len() as i32 + 1;
+    indices.entry(state.sym(*u).name.clone()).or_insert(next_index);
+  }
+}
+
 fn main() {
   let vertex_file = std::env::args().nth(1).unwrap();
   let vs_name = vertex_file.split(".").next().unwrap().to_owned();
@@ -28,11 +35,17 @@ fn main() {
   let (vs_state, vs_hir, vs_is_frag) = parse_shader(vertex_file);
   let (fs_state, fs_hir, fs_is_frag) = parse_shader(frag_file);
 
+  let mut uniform_indices = HashMap::new();
   let vertex_uniforms = gather_uniforms(&vs_state, &vs_hir);
+  build_uniform_indices(&mut uniform_indices, &vs_state, &vertex_uniforms);
   let frag_uniforms = gather_uniforms(&fs_state, &fs_hir);
+  build_uniform_indices(&mut uniform_indices, &fs_state, &frag_uniforms);
 
-  translate_shader(vs_name, vs_state, vs_hir, vs_is_frag);
-  translate_shader(fs_name, fs_state, fs_hir, fs_is_frag);
+  assert_eq!(fs_name, vs_name);
+  write_get_uniform_index(&fs_name, &uniform_indices);
+
+  translate_shader(vs_name, vs_state, vs_hir, vs_is_frag, &uniform_indices);
+  translate_shader(fs_name, fs_state, fs_hir, fs_is_frag, &uniform_indices);
 }
 
 fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
@@ -78,7 +91,7 @@ fn gather_uniforms(state: &hir::State, hir: &hir::TranslationUnit) -> Vec<hir::S
   uniforms
 }
 
-fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool) {
+fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool, uniform_indices: &HashMap<String, i32>) {
   use std::io::Write;
 
   //println!("{:#?}", state);
@@ -165,10 +178,9 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
         };
 
     write!(state, "struct {} {{\n", name);
-    write_get_uniform_index(&mut state, &uniforms);
-    write_set_uniform_int(&mut state, &uniforms);
-    write_set_uniform_4f(&mut state, &uniforms);
-    write_set_uniform_matrix4fv(&mut state, &uniforms);
+    write_set_uniform_int(&mut state, &uniforms, uniform_indices);
+    write_set_uniform_4f(&mut state, &uniforms, uniform_indices);
+    write_set_uniform_matrix4fv(&mut state, &uniforms, uniform_indices);
     if state.kind == ShaderKind::Vertex {
       write_bind_attrib_location(&mut state, &inputs);
       write_load_attribs(&mut state, &inputs);
@@ -192,24 +204,14 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
   println!("{}", output_cxx);
 }
 
-fn write_get_uniform_index(state: &mut OutputState, uniforms: &[hir::SymRef]) {
-  write!(state, "static int get_uniform_location(char *name) {{\n");
-  let mut index = 1;
-  for i in uniforms {
-    let sym = state.hir.sym(*i);
-    match &sym.decl {
-      hir::SymDecl::Global(_, _, ty, _) => {
-        write!(state, "if (strcmp(\"{}\", name) == 0) {{ return {}; }}\n", sym.name.as_str(), index);
-        index += 1;
-      }
-      _ => panic!()
-    }
+fn write_get_uniform_index(name: &str, uniform_indices: &HashMap<String, i32>) {
+  println!("static int {}_get_uniform_location(char *name) {{\n", name);
+  for (uniform_name, index) in uniform_indices.iter() {
+    println!("if (strcmp(\"{}\", name) == 0) {{ return {}; }}\n", uniform_name, index);
   }
-  write!(state, "return -1;\n");
-  write!(state, "}}\n");
+  println!("return -1;\n");
+  println!("}}\n");
 }
-
-
 
 fn float4_compatible(ty: hir::TypeKind) -> bool {
   match ty {
@@ -224,14 +226,14 @@ fn matrix4_compatible(ty: hir::TypeKind) -> bool {
   }
 }
 
-fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef]) {
+fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &HashMap<String, i32>) {
   write!(state, "void set_uniform_int(int index, int value) {{\n");
-  let mut index = 1;
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
         let name = sym.name.as_str();
+        let index = uniform_indices.get(name).unwrap();
         write!(state, "if (index == {}) {{\n", index);
         match ty.kind {
           hir::TypeKind::Int => write!(state, "{} = {}(value);\n", name, scalar_type_name(state, ty)),
@@ -241,7 +243,6 @@ fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef]) {
           _ => write!(state, "assert(0); // {}\n", name),
         };
         write!(state, "}}\n");
-        index += 1;
       }
       _ => panic!()
     }
@@ -249,14 +250,14 @@ fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef]) {
   write!(state, "}}\n");
 }
 
-fn write_set_uniform_4f(state: &mut OutputState, uniforms: &[hir::SymRef]) {
+fn write_set_uniform_4f(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &HashMap<String, i32>) {
   write!(state, "void set_uniform_4f(int index, float *value) {{\n");
-  let mut index = 1;
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
         let name = sym.name.as_str();
+        let index = uniform_indices.get(name).unwrap();
         write!(state, "if (index == {}) {{\n", index);
         if float4_compatible(ty.kind.clone()) {
           write!(state, "{} = {}(value);\n", name, scalar_type_name(state, ty));
@@ -264,7 +265,6 @@ fn write_set_uniform_4f(state: &mut OutputState, uniforms: &[hir::SymRef]) {
           write!(state, "assert(0); // {}\n", name);
         }
         write!(state, "}}\n");
-        index += 1;
       }
       _ => panic!()
     }
@@ -272,14 +272,15 @@ fn write_set_uniform_4f(state: &mut OutputState, uniforms: &[hir::SymRef]) {
   write!(state, "}}\n");
 }
 
-fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef]) {
+fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &HashMap<String, i32>) {
   write!(state, "void set_uniform_matrix4fv(int index, const float *value) {{\n");
-  let mut index = 1;
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
         let name = sym.name.as_str();
+        let index = uniform_indices.get(name).unwrap();
+
         write!(state, "if (index == {}) {{\n", index);
         if matrix4_compatible(ty.kind.clone()) {
           write!(state, "{} = mat4_scalar::load_from_ptr(value);\n", name);
@@ -287,7 +288,6 @@ fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef]
           write!(state, "assert(0); // {}\n", name);
         }
         write!(state, "}}\n");
-        index += 1;
       }
       _ => panic!()
     }
