@@ -2436,9 +2436,13 @@ pub fn show_jump_statement(state: &mut OutputState, j: &hir::JumpStatement) {
       if let Some(e) = e {
         if state.output_cxx {
           if use_return_mask(state) {
+            // We cast any conditions by `ret_mask_type` so that scalars nicely
+            // convert to -1. i.e. I32 &= bool will give the wrong result. while I32 &= I32(bool) works
+            let ret_mask_type = if state.return_vector { "I32" } else { "int32_t" };
+
             if !state.return_declared {
               // XXX: if we're nested then this declaration won't work
-              state.write(if state.return_vector { "I32" } else { "int32_t" });
+              state.write(ret_mask_type);
               state.write(" ret_mask = ~0;\n");
               // XXX: the cloning here is bad
               let is_scalar = state.is_scalar.replace(!state.return_vector);
@@ -2448,13 +2452,13 @@ pub fn show_jump_statement(state: &mut OutputState, j: &hir::JumpStatement) {
               state.return_declared = true;
             }
             // XXX: the cloning here is bad
-            state.write("ret = if_then_else(ret_mask & (");
+            write!(state, "ret = if_then_else(ret_mask & {}(", ret_mask_type);
             show_hir_expr(state, &state.mask.clone().unwrap());
             state.write("), ");
             show_hir_expr(state, e);
             state.write(", ret);\n");
             show_indent(state);
-            state.write("ret_mask &= ~(");
+            write!(state, "ret_mask &= ~{}(", ret_mask_type);
             show_hir_expr(state, &state.mask.clone().unwrap());
             state.write(");\n");
           } else {
@@ -2477,7 +2481,7 @@ pub fn show_jump_statement(state: &mut OutputState, j: &hir::JumpStatement) {
         if state.output_cxx {
           if use_return_mask(state) {
             show_indent(state);
-            state.write("ret_mask &= ~(");
+            write!(state, "ret_mask &= ~{}(", if state.return_vector { "I32" } else { "int32_t" });
             show_hir_expr(state, &state.mask.clone().unwrap());
             state.write(");\n");
             state.return_declared = true;
