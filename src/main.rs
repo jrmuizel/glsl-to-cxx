@@ -20,18 +20,19 @@ enum ShaderKind {
 
 fn main() {
   let vertex_file = std::env::args().nth(1).unwrap();
-  let name = vertex_file.split(".").next().unwrap().to_owned();
-
-  let (state, hir, is_frag) = parse_shader(vertex_file);
-  let vertex_uniforms = gather_uniforms(&state, &hir);
-  translate_shader(name, state, hir, is_frag);
+  let vs_name = vertex_file.split(".").next().unwrap().to_owned();
 
   let frag_file = std::env::args().nth(2).unwrap();
-  let name = frag_file.split(".").next().unwrap().to_owned();
+  let fs_name = frag_file.split(".").next().unwrap().to_owned();
 
-  let (state, hir, is_frag) = parse_shader(frag_file);
-  let frag_uniforms = gather_uniforms(&state, &hir);
-  translate_shader(name, state, hir, is_frag);
+  let (vs_state, vs_hir, vs_is_frag) = parse_shader(vertex_file);
+  let (fs_state, fs_hir, fs_is_frag) = parse_shader(frag_file);
+
+  let vertex_uniforms = gather_uniforms(&vs_state, &vs_hir);
+  let frag_uniforms = gather_uniforms(&fs_state, &fs_hir);
+
+  translate_shader(vs_name, vs_state, vs_hir, vs_is_frag);
+  translate_shader(fs_name, fs_state, fs_hir, fs_is_frag);
 }
 
 fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
