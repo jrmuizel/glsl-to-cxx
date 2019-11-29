@@ -20,12 +20,19 @@ enum ShaderKind {
 
 fn main() {
   let vertex_file = std::env::args().nth(1).unwrap();
-  translate_shader(vertex_file);
+  let name = vertex_file.split(".").next().unwrap().to_owned();
+  let (state, hir, is_frag) = parse_shader(vertex_file);
+  translate_shader(name, state, hir, is_frag);
+
   let frag_file = std::env::args().nth(2).unwrap();
-  translate_shader(frag_file);
+  let name = frag_file.split(".").next().unwrap().to_owned();
+  let (state, hir, is_frag) = parse_shader(frag_file);
+  translate_shader(name, state, hir, is_frag);
 }
 
-fn translate_shader(file: String) {
+fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
+  use std::io::Write;
+
   let mut contents = String::new();
   let is_frag = file.contains("frag");
   std::fs::File::open(&file).unwrap().read_to_string(&mut contents).unwrap();
@@ -35,9 +42,17 @@ fn translate_shader(file: String) {
   let mut ast_glsl = String::new();
   let r = r.unwrap();
   glsl::transpiler::glsl::show_translation_unit(&mut ast_glsl, &r);
+  let mut fast = std::fs::File::create("ast").unwrap();
+  fast.write(ast_glsl.as_bytes());
 
   let mut state = hir::State::new();
   let hir = hir::ast_to_hir(&mut state, &r);
+  (state, hir, is_frag)
+}
+
+fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool) {
+  use std::io::Write;
+
   //println!("{:#?}", state);
 
   hir::infer_run_class(&mut state, &hir);
@@ -117,7 +132,7 @@ fn translate_shader(file: String) {
   write!(state, "*/\n");
 
   if state.output_cxx {
-    let name = file.split(".").next().unwrap().to_owned() +
+    let name = name.to_owned() +
         match state.kind {
           ShaderKind::Vertex => "_vert",
           ShaderKind::Fragment => "_frag",
@@ -143,9 +158,7 @@ fn translate_shader(file: String) {
   }
   let output_cxx = state.finish_output();
 
-  use std::io::Write;
-  let mut fast = std::fs::File::create("ast").unwrap();
-  fast.write(ast_glsl.as_bytes());
+
   let mut hir = std::fs::File::create("hir").unwrap();
   hir.write(output_glsl.as_bytes());
 
