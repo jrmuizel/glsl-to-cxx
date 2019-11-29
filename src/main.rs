@@ -21,12 +21,16 @@ enum ShaderKind {
 fn main() {
   let vertex_file = std::env::args().nth(1).unwrap();
   let name = vertex_file.split(".").next().unwrap().to_owned();
+
   let (state, hir, is_frag) = parse_shader(vertex_file);
+  let vertex_uniforms = gather_uniforms(&state, &hir);
   translate_shader(name, state, hir, is_frag);
 
   let frag_file = std::env::args().nth(2).unwrap();
   let name = frag_file.split(".").next().unwrap().to_owned();
+
   let (state, hir, is_frag) = parse_shader(frag_file);
+  let frag_uniforms = gather_uniforms(&state, &hir);
   translate_shader(name, state, hir, is_frag);
 }
 
@@ -48,6 +52,29 @@ fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
   let mut state = hir::State::new();
   let hir = hir::ast_to_hir(&mut state, &r);
   (state, hir, is_frag)
+}
+
+fn gather_uniforms(state: &hir::State, hir: &hir::TranslationUnit) -> Vec<hir::SymRef> {
+  let mut uniforms = Vec::new();
+  for i in hir {
+    match i {
+      hir::ExternalDeclaration::Declaration(hir::Declaration::InitDeclaratorList(ref d))  => {
+        match &state.sym(d.head.name).decl {
+          hir::SymDecl::Global(storage, ..) => {
+            match storage {
+              hir::StorageClass::Uniform => {
+                uniforms.push(d.head.name);
+              }
+              _ => {}
+            }
+          }
+          _ => {}
+        }
+      }
+      _ => {}
+    }
+  }
+  uniforms
 }
 
 fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool) {
@@ -85,8 +112,6 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
       _ => {}
     }
   }
-
-
 
   //println!("{:#?}", hir);
 
