@@ -9,6 +9,7 @@ use hir::State;
 use hir::Type;
 use std::io::Read;
 use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::mem;
 
@@ -18,7 +19,7 @@ enum ShaderKind {
   Vertex
 }
 
-fn build_uniform_indices(indices: &mut HashMap<String, i32>, state: &hir::State, uniforms: &[hir::SymRef]) {
+fn build_uniform_indices(indices: &mut BTreeMap<String, i32>, state: &hir::State, uniforms: &[hir::SymRef]) {
   for u in uniforms {
     let next_index = indices.len() as i32 + 1;
     indices.entry(state.sym(*u).name.clone()).or_insert(next_index);
@@ -35,7 +36,8 @@ fn main() {
   let (vs_state, vs_hir, vs_is_frag) = parse_shader(vertex_file);
   let (fs_state, fs_hir, fs_is_frag) = parse_shader(frag_file);
 
-  let mut uniform_indices = HashMap::new();
+  // we use a BTree so that iteration is stable
+  let mut uniform_indices = BTreeMap::new();
   let vertex_uniforms = gather_uniforms(&vs_state, &vs_hir);
   build_uniform_indices(&mut uniform_indices, &vs_state, &vertex_uniforms);
   let frag_uniforms = gather_uniforms(&fs_state, &fs_hir);
@@ -91,7 +93,7 @@ fn gather_uniforms(state: &hir::State, hir: &hir::TranslationUnit) -> Vec<hir::S
   uniforms
 }
 
-fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool, uniform_indices: &HashMap<String, i32>) {
+fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool, uniform_indices: &BTreeMap<String, i32>) {
   use std::io::Write;
 
   //println!("{:#?}", state);
@@ -204,7 +206,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
   println!("{}", output_cxx);
 }
 
-fn write_get_uniform_index(name: &str, uniform_indices: &HashMap<String, i32>) {
+fn write_get_uniform_index(name: &str, uniform_indices: &BTreeMap<String, i32>) {
   println!("static int {}_get_uniform_location(char *name) {{\n", name);
   for (uniform_name, index) in uniform_indices.iter() {
     println!("if (strcmp(\"{}\", name) == 0) {{ return {}; }}\n", uniform_name, index);
@@ -226,7 +228,7 @@ fn matrix4_compatible(ty: hir::TypeKind) -> bool {
   }
 }
 
-fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &HashMap<String, i32>) {
+fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
   write!(state, "void set_uniform_int(int index, int value) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
@@ -250,7 +252,7 @@ fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef], unif
   write!(state, "}}\n");
 }
 
-fn write_set_uniform_4f(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &HashMap<String, i32>) {
+fn write_set_uniform_4f(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
   write!(state, "void set_uniform_4f(int index, float *value) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
@@ -272,7 +274,7 @@ fn write_set_uniform_4f(state: &mut OutputState, uniforms: &[hir::SymRef], unifo
   write!(state, "}}\n");
 }
 
-fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &HashMap<String, i32>) {
+fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
   write!(state, "void set_uniform_matrix4fv(int index, const float *value) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
