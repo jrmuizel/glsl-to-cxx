@@ -186,7 +186,6 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     if state.kind == ShaderKind::Vertex {
       write_bind_attrib_location(&mut state, &inputs);
       write_load_attribs(&mut state, &inputs);
-      write_output_size(&mut state, &outputs);
       write_store_outputs(&mut state, &outputs);
     } else {
       write_read_inputs(&mut state, &inputs);
@@ -383,36 +382,128 @@ fn write_load_attribs(state: &mut OutputState, attribs: &[hir::SymRef]) {
   write!(state, "}}\n");
 }
 
-fn write_output_size(state: &mut OutputState, outputs: &[hir::SymRef]) {
-  write!(state, "static size_t output_size() {{\n");
-  write!(state, "  size_t size = 0;\n");
+fn write_store_outputs(state: &mut OutputState, outputs: &[hir::SymRef]) {
+  let is_scalar = state.is_scalar.replace(true);
+  write!(state, "struct FlatOutputs {{\n");
   for i in outputs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
-      hir::SymDecl::Global(_, interpolation, ty, run_class) => {
-        let name = sym.name.as_str();
-        write!(state, "  size += sizeof(get_nth({}, 0));\n", name);
+      hir::SymDecl::Global(_, _, ty, run_class) => {
+        if *run_class == hir::RunClass::Scalar {
+          show_type(state, ty);
+          write!(state, " {};\n", sym.name.as_str());
+        }
       }
       _ => panic!()
     }
   }
-  write!(state, "  return size;\n");
-  write!(state, "}}\n");
-}
+  write!(state, "}};\n");
 
-fn write_store_outputs(state: &mut OutputState, outputs: &[hir::SymRef]) {
-  write!(state, "void store_outputs(void *dest) {{\n");
-  write!(state, "  size_t offset = 0;\n");
-  write!(state, "  for (int n = 0; n < 4; n++) {{\n");
+  write!(state, "struct InterpOutputs {{\n");
   for i in outputs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
-      hir::SymDecl::Global(_, interpolation, ty, run_class) => {
-        let name = sym.name.as_str();
-        // create a temporary so we can take its address
-        write!(state, "    {{const auto& temp = get_nth({}, n);\n", name);
-        write!(state, "    memcpy((char*)dest + offset, &temp, sizeof(get_nth({}, n)));}}\n", name);
-        write!(state, "    offset += sizeof(get_nth({}, n));\n", name);
+      hir::SymDecl::Global(_, _, ty, run_class) => {
+        if *run_class != hir::RunClass::Scalar {
+          show_type(state, ty);
+          write!(state, " {};\n", sym.name.as_str());
+        }
+      }
+      _ => panic!()
+    }
+  }
+
+  write!(state, "friend InterpOutputs operator-(const InterpOutputs& a, const InterpOutputs& b) {{\n  return InterpOutputs{{");
+  let mut first = true;
+  for i in outputs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, _, ty, run_class) => {
+        if *run_class != hir::RunClass::Scalar {
+          let name = sym.name.as_str();
+          if first {
+            first = false;
+          } else {
+            state.write(",");
+          }
+          write!(state, "a.{}-b.{}", name, name);
+        }
+      }
+      _ => panic!()
+    }
+  }
+  write!(state, "}};\n}}\n");
+
+  write!(state, "friend InterpOutputs operator+(const InterpOutputs& a, const InterpOutputs& b) {{\n  return InterpOutputs{{");
+  let mut first = true;
+  for i in outputs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, _, ty, run_class) => {
+        if *run_class != hir::RunClass::Scalar {
+          let name = sym.name.as_str();
+          if first {
+            first = false;
+          } else {
+            state.write(",");
+          }
+          write!(state, "a.{}+b.{}", name, name);
+        }
+      }
+      _ => panic!()
+    }
+  }
+  write!(state, "}};\n}}\n");
+
+  write!(state, "friend InterpOutputs operator*(const InterpOutputs& a, float b) {{\n  return InterpOutputs{{");
+  let mut first = true;
+  for i in outputs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, _, ty, run_class) => {
+        if *run_class != hir::RunClass::Scalar {
+          let name = sym.name.as_str();
+          if first {
+            first = false;
+          } else {
+            state.write(",");
+          }
+          write!(state, "a.{}*b", name);
+        }
+      }
+      _ => panic!()
+    }
+  }
+  write!(state, "}};\n}}\n");
+
+  write!(state, "}};\n");
+  state.is_scalar.set(is_scalar);
+
+  write!(state, "void store_flat_outputs(FlatOutputs& dest) {{\n");
+  for i in outputs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, _, _, run_class) => {
+        if *run_class == hir::RunClass::Scalar {
+          let name = sym.name.as_str();
+          write!(state, "  dest.{} = {};\n", name, name);
+        }
+      }
+      _ => panic!()
+    }
+  }
+  write!(state, "}}\n");
+
+  write!(state, "void store_interp_outputs(InterpOutputs dest[4]) {{\n");
+  write!(state, "  for(int n = 0; n < 4; n++) {{\n");
+  for i in outputs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, _, _, run_class) => {
+        if *run_class != hir::RunClass::Scalar {
+          let name = sym.name.as_str();
+          write!(state, "    dest[n].{} = get_nth({}, n);\n", name, name);
+        }
       }
       _ => panic!()
     }
@@ -422,22 +513,45 @@ fn write_store_outputs(state: &mut OutputState, outputs: &[hir::SymRef]) {
 }
 
 fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef]) {
-  write!(state, "void read_inputs(char *src) {{\n");
+  write!(state, "template<typename T> void read_flat_inputs(const T& src) {{\n");
   for i in inputs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
-      hir::SymDecl::Global(_, interpolation, ty, run_class) => {
-        let name = sym.name.as_str();
-        write!(state, "  {{\n");
-        write!(state, "    {} scalar;\n", scalar_type_name(state, ty));
-        write!(state, "    memcpy(&scalar, src, sizeof(get_nth({}, 0)));\n", name);
-        let is_scalar = state.is_scalar.replace(*run_class == hir::RunClass::Scalar);
-        write!(state, "    {} = {}(scalar);\n", name, type_name(state, ty));
-        state.is_scalar.set(is_scalar);
-        // create a temporary so we can take its address
-        write!(state, "    src += sizeof(get_nth({}, 0));\n", name);
-        write!(state, "  }}\n");
+      hir::SymDecl::Global(_, _, _, run_class) => {
+        if *run_class == hir::RunClass::Scalar {
+          let name = sym.name.as_str();
+          write!(state, "  {} = src.{};\n", name, name);
+        }
+      }
+      _ => panic!()
+    }
+  }
+  write!(state, "}}\n");
 
+  write!(state, "template<typename T> void read_interp_inputs(const T& a, const T& b, const T& c, const T& d) {{\n");
+  for i in inputs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, _, _, run_class) => {
+        if *run_class != hir::RunClass::Scalar {
+          let name = sym.name.as_str();
+          write!(state, "  {0} = assemble(a.{0}, b.{0}, c.{0}, d.{0});\n", name);
+        }
+      }
+      _ => panic!()
+    }
+  }
+  write!(state, "}}\n");
+
+  write!(state, "template<typename T> void step_interp_inputs(const T& delta) {{\n");
+  for i in inputs {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, _, _, run_class) => {
+        if *run_class != hir::RunClass::Scalar {
+          let name = sym.name.as_str();
+          write!(state, "  {} += delta.{};\n", name, name);
+        }
       }
       _ => panic!()
     }
