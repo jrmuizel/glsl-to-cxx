@@ -2268,6 +2268,8 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
                      vec![Type::new(Float)]);
     declare_function(state, "vec2", Some("make_vec2"), Type::new(Vec2),
                      vec![Type::new(IVec2)]);
+    declare_function(state, "vec2", Some("make_vec2"), Type::new(Vec2),
+                     vec![Type::new(IVec3)]);
     declare_function(state, "vec3", Some("make_vec3"), Type::new(Vec3),
                      vec![Type::new(Float), Type::new(Float), Type::new(Float)]);
     declare_function(state, "vec3", Some("make_vec3"), Type::new(Vec3),
@@ -2460,7 +2462,7 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
                      vec![Type::new(Sampler2DArray), Type::new(Vec3)]);
     declare_function(state, "textureLod", None, Type::new(Vec4),
                      vec![Type::new(Sampler2DArray), Type::new(Vec3), Type::new(Float)]);
-    declare_function(state, "textureSize", None, Type::new(IVec2),
+    declare_function(state, "textureSize", None, Type::new(IVec3),
                      vec![Type::new(Sampler2DArray), Type::new(Int)]);
     declare_function(state, "textureSize", None, Type::new(IVec2),
                      vec![Type::new(Sampler2D), Type::new(Int)]);
