@@ -189,6 +189,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
       write_store_outputs(&mut state, &outputs);
     } else {
       write_read_inputs(&mut state, &inputs);
+      write_get_output(&mut state, &outputs);
     }
   }
   show_translation_unit(&mut state, &hir);
@@ -557,6 +558,17 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef]) {
     }
   }
   write!(state, "}}\n");
+}
+
+fn write_get_output(state: &mut OutputState, outputs: &[hir::SymRef]) {
+  write!(state, "vec4 get_output() {{ return ");
+  if let Some(o) = outputs.first() {
+    let sym = state.hir.sym(*o);
+    state.write(sym.name.as_str());
+  } else {
+    state.write("vec4()");
+  }
+  write!(state, "; }}\n");
 }
 
 pub struct OutputState {
