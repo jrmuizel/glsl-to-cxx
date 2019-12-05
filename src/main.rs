@@ -149,9 +149,10 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     functions: HashMap::new(),
     deps: RefCell::new(Vec::new()),
     vector_mask: 0,
+    uses_discard: false,
   };
 
-  show_translation_unit(&mut state, &hir);
+  show_translation_unit(&mut state, &hir, is_frag);
   let output_glsl = state.finish_output();
 
   state.should_indent = true;
@@ -192,7 +193,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
       write_get_output(&mut state, &outputs);
     }
   }
-  show_translation_unit(&mut state, &hir);
+  show_translation_unit(&mut state, &hir, is_frag);
   if state.output_cxx {
     write!(state, "}};");
   }
@@ -588,6 +589,7 @@ pub struct OutputState {
   functions: HashMap<(hir::SymRef, u32), bool>,
   deps: RefCell<Vec<(hir::SymRef, u32)>>,
   vector_mask: u32,
+  uses_discard: bool,
 }
 
 use std::fmt::{Arguments, Write};
@@ -2545,6 +2547,7 @@ pub fn show_jump_statement(state: &mut OutputState, j: &hir::JumpStatement) {
     hir::JumpStatement::Break => { state.write("break;\n"); }
     hir::JumpStatement::Discard => {
       if state.output_cxx {
+        state.uses_discard = true;
         if let Some(mask) = &state.mask {
           state.write("isPixelDiscarded |= (");
           show_hir_expr(state, mask);
@@ -2849,10 +2852,10 @@ pub fn show_cxx_function_definition(state: &mut OutputState, name: hir::SymRef, 
   }
 }
 
-pub fn show_translation_unit(state: &mut OutputState, tu: &hir::TranslationUnit) {
+pub fn show_translation_unit(state: &mut OutputState, tu: &hir::TranslationUnit, is_frag: bool) {
   state.flush_buffer();
 
-  if state.output_cxx {
+  if state.output_cxx && is_frag {
     state.write("Bool isPixelDiscarded = false;\n");
     state.flush_buffer();
   }
@@ -2865,6 +2868,16 @@ pub fn show_translation_unit(state: &mut OutputState, tu: &hir::TranslationUnit)
       show_cxx_function_definition(state, name, 0);
       state.flush_buffer();
     }
+    if is_frag {
+        if state.uses_discard {
+            state.write("bool uses_discard() { return true; }\n");
+            state.write("Bool discard_mask() { return isPixelDiscarded; }\n");
+        } else {
+            state.write("bool uses_discard() { return false; }\n");
+            state.write("Bool discard_mask() { return false; }\n");
+        }
+    }
+    state.flush_buffer();
   }
 }
 
