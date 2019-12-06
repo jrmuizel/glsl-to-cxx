@@ -354,28 +354,13 @@ fn type_name(state: &OutputState, ty: &Type) -> String {
 }
 
 fn write_load_attribs(state: &mut OutputState, attribs: &[hir::SymRef]) {
-  write!(state, "void load_attribs_for_tri(VertexAttrib *attribs, unsigned short *indices, int start, int instance) {{\n");
+  write!(state, "void load_attribs(VertexAttrib *attribs, unsigned short *indices, int start, int instance, int count = 3, int dest = 0) {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, interpolation, ty, run_class) => {
         let name = sym.name.as_str();
-        write!(state, "for (int n = 0; n < 3; n++) {{\n");
-        write!(state, "  VertexAttrib &va = attribs[{}_location_index];\n", name);
-        write!(state, "  {} scalar;\n", scalar_type_name(state, ty));
-        write!(state, "  char* src;\n");
-        write!(state, "  if (va.divisor == 0) {{\n");
-        write!(state, "    src = (char*)va.buf + va.stride * indices[start + n];\n");
-        write!(state, "  }} else {{\n");
-        write!(state, "    assert(va.divisor == 1);\n");
-        write!(state, "    src = (char*)va.buf + va.stride * instance;\n");
-        write!(state, "  }}\n");
-        write!(state, "  assert(src + va.size <= va.buf + va.buf_size);\n");
-        write!(state, "  memcpy(&scalar, src, va.size);\n");
-        let is_scalar = state.is_scalar.replace(*run_class == hir::RunClass::Scalar);
-        write!(state, "  put_nth({}, n, scalar);\n", name);
-        state.is_scalar.set(is_scalar);
-        write!(state, "}}\n");
+        write!(state, "  load_attrib({}, attribs[{}_location_index], indices, start, instance, count, dest);\n", name, name);
       }
       _ => panic!()
     }
