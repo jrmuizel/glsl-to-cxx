@@ -530,6 +530,9 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef]) {
   write!(state, "}}\n");
 
   write!(state, "template<typename T> void step_interp_inputs(const T& delta) {{\n");
+  if (state.hir.used_fragcoord & 1) != 0 {
+    write!(state, " gl_FragCoord.x += 4;\n");
+  }
   for i in inputs {
     let sym = state.hir.sym(*i);
     match &sym.decl {

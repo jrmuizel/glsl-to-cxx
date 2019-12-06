@@ -820,6 +820,7 @@ pub struct State {
     branch_run_class: RunClass,
     branch_declaration: SymRef,
     modified_globals: RefCell<Vec<SymRef>>,
+    pub used_fragcoord: i32,
 }
 
 impl State {
@@ -833,6 +834,7 @@ impl State {
             branch_run_class: RunClass::Unknown,
             branch_declaration: SymRef(0),
             modified_globals: RefCell::new(Vec::new()),
+            used_fragcoord: 0,
         }
     }
 
@@ -1985,7 +1987,17 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                     _ => panic!(),
                 });
 
-                Expr { kind: ExprKind::SwizzleSelector(e, SwizzleSelector::parse(i.as_str())), ty }
+                let sel = SwizzleSelector::parse(i.as_str());
+
+                if let ExprKind::Variable(sym) = &e.kind {
+                    if state.sym(*sym).name == "gl_FragCoord" {
+                        for c in &sel.components {
+                            state.used_fragcoord |= 1 << c;
+                        }
+                    }
+                }
+
+                Expr { kind: ExprKind::SwizzleSelector(e, sel), ty }
             } else {
                 match ty.kind {
                     TypeKind::Struct(s) => {
