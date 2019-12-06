@@ -61,7 +61,7 @@ fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
   let mut ast_glsl = String::new();
   let r = r.unwrap();
   glsl::transpiler::glsl::show_translation_unit(&mut ast_glsl, &r);
-  let mut fast = std::fs::File::create("ast").unwrap();
+  let mut fast = std::fs::File::create(if is_frag { "ast.frag" } else { "ast.vert" }).unwrap();
   fast.write(ast_glsl.as_bytes());
 
   let mut state = hir::State::new();
@@ -199,7 +199,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
   let output_cxx = state.finish_output();
 
 
-  let mut hir = std::fs::File::create("hir").unwrap();
+  let mut hir = std::fs::File::create(if is_frag { "hir.frag" } else { "hir.vert" }).unwrap();
   hir.write(output_glsl.as_bytes());
 
 
@@ -2410,7 +2410,7 @@ fn is_declaration(stmt: &hir::Statement) -> bool {
 }
 
 pub fn show_switch_statement(state: &mut OutputState, sst: &hir::SwitchStatement) {
-  if state.output_cxx && expr_run_class(state, &sst.head) != hir::RunClass::Scalar {
+  if true {
     // XXX: when lowering switches we end up with a mask that has
     // a bunch of mutually exclusive conditions.
     // It would be nice if we could fold them together.
