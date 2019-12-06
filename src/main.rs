@@ -2167,20 +2167,40 @@ pub fn show_expression_statement(state: &mut OutputState, est: &hir::ExprStateme
 }
 
 pub fn show_selection_statement(state: &mut OutputState, sst: &hir::SelectionStatement) {
+  show_indent(state);
+
   if state.output_cxx && (state.return_declared || expr_run_class(state, &sst.cond) != hir::RunClass::Scalar) {
-    let previous = state.mask.clone();
-    state.mask = Some(match mem::replace(&mut state.mask, None) {
+    let (cond_index, mask) = if state.mask.is_none() || sst.else_stmt.is_some() {
+        let cond = sst.cond.clone();
+        state.cond_index += 1;
+        let cond_index = state.cond_index;
+        write!(state, "auto _c{}_ = ", cond_index);
+        show_hir_expr(state, &cond);
+        state.write(";\n");
+        (cond_index, Box::new(hir::Expr { kind: hir::ExprKind::Cond(cond_index, cond), ty: hir::Type::new(hir::TypeKind::Bool) }))
+    } else {
+        (0, sst.cond.clone())
+    };
+
+    let previous = mem::replace(&mut state.mask, None);
+    state.mask = Some(match previous.clone() {
       Some(e) => {
-        Box::new(hir::Expr {
-          kind: hir::ExprKind::Binary(syntax::BinaryOp::And, e, sst.cond.clone()),
+        let cond = Box::new(hir::Expr {
+          kind: hir::ExprKind::Binary(syntax::BinaryOp::And, e, mask.clone()),
           ty: hir::Type::new(hir::TypeKind::Bool)
-        })
+        });
+        state.cond_index += 1;
+        let nested_cond_index = state.cond_index;
+        show_indent(state);
+        write!(state, "auto _c{}_ = ", nested_cond_index);
+        show_hir_expr(state, &cond);
+        state.write(";\n");
+        Box::new(hir::Expr { kind: hir::ExprKind::Cond(nested_cond_index, cond), ty: hir::Type::new(hir::TypeKind::Bool) })
       }
-      None => sst.cond.clone(),
+      None => mask.clone()
     });
 
     show_statement(state, &sst.body);
-
     state.mask = previous;
 
     if let Some(rest) = &sst.else_stmt {
@@ -2188,33 +2208,29 @@ pub fn show_selection_statement(state: &mut OutputState, sst: &hir::SelectionSta
       // invert the condition
       let inverted_cond =
           Box::new(hir::Expr {
-            kind: hir::ExprKind::Unary(UnaryOp::Not, sst.cond.clone()),
+            kind: hir::ExprKind::Unary(UnaryOp::Not, mask),
             ty: hir::Type::new(hir::TypeKind::Bool),
           });
-
-      let mask = match mem::replace(&mut state.mask, None) {
+      let previous = mem::replace(&mut state.mask, None);
+      state.mask = Some(match previous.clone() {
         Some(e) => {
-          Box::new(hir::Expr {
+          let cond = Box::new(hir::Expr {
             kind: hir::ExprKind::Binary(syntax::BinaryOp::And, e, inverted_cond),
             ty: hir::Type::new(hir::TypeKind::Bool)
-          })
+          });
+          show_indent(state);
+          write!(state, "_c{}_ = ", cond_index);
+          show_hir_expr(state, &cond);
+          state.write(";\n");
+          Box::new(hir::Expr { kind: hir::ExprKind::Cond(cond_index, cond), ty: hir::Type::new(hir::TypeKind::Bool) })
         }
-        None => inverted_cond,
-      };
-
-      state.cond_index += 1;
-      show_indent(state);
-      write!(state, "auto _c{}_ = ", state.cond_index);
-      show_hir_expr(state, &mask);
-      state.write(";\n");
-      state.mask = Some(Box::new(hir::Expr { kind: hir::ExprKind::Cond(state.cond_index, mask), ty: hir::Type::new(hir::TypeKind::Bool) }));
-
+        None => inverted_cond
+      });
 
       show_statement(state, rest);
       state.mask = previous;
     }
   } else {
-    show_indent(state);
     state.write("if (");
     show_hir_expr(state, &sst.cond);
     state.write(") {\n");
