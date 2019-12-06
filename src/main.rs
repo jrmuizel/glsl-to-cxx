@@ -191,6 +191,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
       write_read_inputs(&mut state, &inputs);
       write_get_output(&mut state, &outputs);
     }
+    write_bind_textures(&mut state, &uniforms);
   }
   show_translation_unit(&mut state, &hir, is_frag);
   if state.output_cxx {
@@ -228,6 +229,45 @@ fn matrix4_compatible(ty: hir::TypeKind) -> bool {
   }
 }
 
+fn write_bind_textures(state: &mut OutputState, uniforms: &[hir::SymRef]) {
+
+  for i in uniforms {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, _, ty, _) => {
+        let name = sym.name.as_str();
+        match ty.kind {
+          hir::TypeKind::Sampler2D | hir::TypeKind::ISampler2D | hir::TypeKind::Sampler2DArray => {
+            show_type(state, &ty);
+            write!(state, "_impl {}_impl;\n", name);
+            write!(state, "int {}_slot;\n", name);
+          }
+          _ => {}
+        };
+      }
+      _ => panic!()
+    }
+  }
+
+  write!(state, "void bind_textures() {{\n");
+  for i in uniforms {
+    let sym = state.hir.sym(*i);
+    match &sym.decl {
+      hir::SymDecl::Global(_, _, ty, _) => {
+        let name = sym.name.as_str();
+        match ty.kind {
+          hir::TypeKind::Sampler2D => write!(state, "{} = lookup_sampler(&{}_impl, {}_slot);\n", name, name, name),
+          hir::TypeKind::ISampler2D => write!(state, "{} = lookup_isampler(&{}_impl, {}_slot);\n", name, name, name),
+          hir::TypeKind::Sampler2DArray => write!(state, "{} = lookup_sampler_array(&{}_impl, {}_slot);\n", name, name, name),
+          _ => {}
+        };
+      }
+      _ => panic!()
+    }
+  }
+  write!(state, "}}\n");
+}
+
 fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
   write!(state, "void set_uniform_int(int index, int value) {{\n");
   for i in uniforms {
@@ -239,9 +279,9 @@ fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef], unif
         write!(state, "if (index == {}) {{\n", index);
         match ty.kind {
           hir::TypeKind::Int => write!(state, "{} = {}(value);\n", name, scalar_type_name(state, ty)),
-          hir::TypeKind::Sampler2D => write!(state, "{} = lookup_sampler(value);\n", name),
-          hir::TypeKind::ISampler2D => write!(state, "{} = lookup_isampler(value);\n", name),
-          hir::TypeKind::Sampler2DArray => write!(state, "{} = lookup_sampler_array(value);\n", name),
+          hir::TypeKind::Sampler2D => write!(state, "{}_slot = value;\n", name),
+          hir::TypeKind::ISampler2D => write!(state, "{}_slot = value;\n", name),
+          hir::TypeKind::Sampler2DArray => write!(state, "{}_slot = value;\n", name),
           _ => write!(state, "assert(0); // {}\n", name),
         };
         write!(state, "}}\n");
