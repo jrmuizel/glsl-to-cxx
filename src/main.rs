@@ -2843,7 +2843,7 @@ pub fn show_cxx_function_definition(state: &mut OutputState, name: hir::SymRef, 
 pub fn show_translation_unit(state: &mut OutputState, tu: &hir::TranslationUnit, is_frag: bool) {
   state.flush_buffer();
 
-  if state.output_cxx && is_frag {
+  if state.output_cxx && is_frag && state.uses_discard {
     state.write("Bool isPixelDiscarded = false;\n");
     state.flush_buffer();
   }
