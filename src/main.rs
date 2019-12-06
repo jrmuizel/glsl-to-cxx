@@ -1490,7 +1490,7 @@ pub fn show_hir_expr_inner(state: &OutputState, expr: &hir::Expr, top_level: boo
             match &state.hir.sym(*name).decl {
             hir::SymDecl::NativeFunction(..) => show_sym(state, name),
             hir::SymDecl::UserFunction(ref fd, ref run_class) => {
-              if state.mask.is_some() && !fd.globals.is_empty() {
+              if (state.mask.is_some() || state.return_declared) && !fd.globals.is_empty() {
                 cond_mask |= 1 << 31;
               }
               let mut param_mask: u32 = 0;
@@ -1501,7 +1501,7 @@ pub fn show_hir_expr_inner(state: &OutputState, expr: &hir::Expr, top_level: boo
                   }
                   match qual {
                     Some(hir::ParameterQualifier::InOut) | Some(hir::ParameterQualifier::Out) => {
-                      if state.mask.is_some() {
+                      if state.mask.is_some() || state.return_declared {
                         cond_mask |= 1 << idx;
                       }
                       if (!arg_mask & param_mask & (1 << idx)) != 0 {
@@ -1561,11 +1561,21 @@ pub fn show_hir_expr_inner(state: &OutputState, expr: &hir::Expr, top_level: boo
       }
 
       if cond_mask != 0 {
+        if !args.is_empty() {
+          state.write(", ");
+        }
         if let Some(mask) = &state.mask {
-          if !args.is_empty() {
-            state.write(", ");
+          if state.return_declared {
+            state.write("(");
+            show_hir_expr(state, mask);
+            state.write(")&ret_mask");
+          } else {
+            show_hir_expr(state, mask);
           }
-          show_hir_expr(state, mask);
+        } else if state.return_declared {
+          state.write("ret_mask");
+        } else {
+          state.write("~0");
         }
       }
 
@@ -2062,13 +2072,12 @@ pub fn show_function_definition(state: &mut OutputState, fd: &hir::FunctionDefin
   if state.output_cxx && (vector_mask & (1 << 31)) != 0 {
     state.mask = Some(Box::new(hir::Expr { kind: hir::ExprKind::CondMask, ty: hir::Type::new(hir::TypeKind::Bool) }));
   }
-  state.return_declared = has_conditional_return(state, &fd.body);
 
   show_indent(state);
   state.write("{\n");
 
   state.indent();
-  if state.return_declared {
+  if has_conditional_return(state, &fd.body) {
     show_indent(state);
     state.write(if state.return_vector { "I32" } else { "int32_t" });
     state.write(" ret_mask = ");
@@ -2564,28 +2573,29 @@ pub fn show_jump_statement(state: &mut OutputState, j: &hir::JumpStatement) {
             // We cast any conditions by `ret_mask_type` so that scalars nicely
             // convert to -1. i.e. I32 &= bool will give the wrong result. while I32 &= I32(bool) works
             let ret_mask_type = if state.return_vector { "I32" } else { "int32_t" };
-
-            if !state.return_declared {
-              // XXX: if we're nested then this declaration won't work
-              state.write(ret_mask_type);
-              state.write(" ret_mask = ~0;\n");
-              // XXX: the cloning here is bad
-              let is_scalar = state.is_scalar.replace(!state.return_vector);
-              show_type(state, &state.return_type.clone().unwrap());
-              state.write(" ret;\n");
-              state.is_scalar.set(is_scalar);
-              state.return_declared = true;
+            if state.return_declared {
+                // XXX: the cloning here is bad
+                write!(state, "ret = if_then_else(ret_mask & {}(", ret_mask_type);
+                show_hir_expr(state, &state.mask.clone().unwrap());
+                state.write("), ");
+                show_hir_expr(state, e);
+                state.write(", ret);\n");
+            } else {
+                state.write("ret = ");
+                show_hir_expr(state, e);
+                state.write(";\n");
             }
-            // XXX: the cloning here is bad
-            write!(state, "ret = if_then_else(ret_mask & {}(", ret_mask_type);
-            show_hir_expr(state, &state.mask.clone().unwrap());
-            state.write("), ");
-            show_hir_expr(state, e);
-            state.write(", ret);\n");
+
             show_indent(state);
-            write!(state, "ret_mask &= ~{}(", ret_mask_type);
+
+            if state.return_declared {
+                write!(state, "ret_mask &= ~{}(", ret_mask_type);
+            } else {
+                write!(state, "ret_mask = ~{}(", ret_mask_type);
+            }
             show_hir_expr(state, &state.mask.clone().unwrap());
             state.write(");\n");
+            state.return_declared = true;
           } else {
             if state.return_declared {
               state.write("ret = if_then_else(ret_mask, ");
@@ -2606,7 +2616,12 @@ pub fn show_jump_statement(state: &mut OutputState, j: &hir::JumpStatement) {
         if state.output_cxx {
           if use_return_mask(state) {
             show_indent(state);
-            write!(state, "ret_mask &= ~{}(", if state.return_vector { "I32" } else { "int32_t" });
+            let ret_mask_type = if state.return_vector { "I32" } else { "int32_t" };
+            if state.return_declared {
+                write!(state, "ret_mask &= ~{}(", ret_mask_type);
+            } else {
+                write!(state, "ret_mask = ~{}(", ret_mask_type);
+            }
             show_hir_expr(state, &state.mask.clone().unwrap());
             state.write(");\n");
             state.return_declared = true;
@@ -2849,7 +2864,7 @@ pub fn show_cxx_function_definition(state: &mut OutputState, name: hir::SymRef, 
 pub fn show_translation_unit(state: &mut OutputState, tu: &hir::TranslationUnit, is_frag: bool) {
   state.flush_buffer();
 
-  if state.output_cxx && is_frag && state.uses_discard {
+  if state.output_cxx && is_frag {
     state.write("Bool isPixelDiscarded = false;\n");
     state.flush_buffer();
   }
