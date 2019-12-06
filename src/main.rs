@@ -2186,7 +2186,7 @@ pub fn show_selection_statement(state: &mut OutputState, sst: &hir::SelectionSta
     state.mask = Some(match previous.clone() {
       Some(e) => {
         let cond = Box::new(hir::Expr {
-          kind: hir::ExprKind::Binary(syntax::BinaryOp::And, e, mask.clone()),
+          kind: hir::ExprKind::Binary(syntax::BinaryOp::BitAnd, e, mask.clone()),
           ty: hir::Type::new(hir::TypeKind::Bool)
         });
         state.cond_index += 1;
@@ -2208,14 +2208,14 @@ pub fn show_selection_statement(state: &mut OutputState, sst: &hir::SelectionSta
       // invert the condition
       let inverted_cond =
           Box::new(hir::Expr {
-            kind: hir::ExprKind::Unary(UnaryOp::Not, mask),
+            kind: hir::ExprKind::Unary(UnaryOp::Complement, mask),
             ty: hir::Type::new(hir::TypeKind::Bool),
           });
       let previous = mem::replace(&mut state.mask, None);
       state.mask = Some(match previous.clone() {
         Some(e) => {
           let cond = Box::new(hir::Expr {
-            kind: hir::ExprKind::Binary(syntax::BinaryOp::And, e, inverted_cond),
+            kind: hir::ExprKind::Binary(syntax::BinaryOp::BitAnd, e, inverted_cond),
             ty: hir::Type::new(hir::TypeKind::Bool)
           });
           show_indent(state);
