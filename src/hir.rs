@@ -739,7 +739,6 @@ fn get_precision(qualifiers: &Option<syntax::TypeQualifier>) -> Option<Precision
 
 impl LiftFrom<&StructFieldSpecifier> for StructField {
     fn lift(state: &mut State, f: &StructFieldSpecifier) -> Self {
-        let precision = get_precision(&f.qualifier);
         let mut ty: Type = lift(state, &f.ty);
         match &f.identifiers.0[..] {
             [ident] => {
@@ -1476,7 +1475,7 @@ fn translate_initializater(state: &mut State, i: &syntax::Initializer) -> Initia
 }
 
 fn translate_struct_declaration(state: &mut State, d: &syntax::SingleDeclaration) -> Declaration {
-    let mut ty = d.ty.clone();
+    let ty = d.ty.clone();
     let ty_def = match &ty.ty.ty {
         TypeSpecifierNonArray::Struct(s) => {
             let decl = SymDecl::Struct(lift(state, s));
@@ -1599,7 +1598,7 @@ fn translate_init_declarator_list(state: &mut State, l: &syntax::InitDeclaratorL
 
 fn translate_declaration(state: &mut State, d: &syntax::Declaration, default_run_class: RunClass) -> Declaration {
     match d {
-        syntax::Declaration::Block(b) => Declaration::Block(panic!()),
+        syntax::Declaration::Block(_) => Declaration::Block(panic!()),
         syntax::Declaration::FunctionPrototype(p) => Declaration::FunctionPrototype(translate_function_prototype(state, p)),
         syntax::Declaration::Global(ty, ids) => {
             // glsl non-es supports requalifying variables
@@ -1739,7 +1738,7 @@ pub fn is_output(expr: &Expr, state: &State) -> Option<SymRef> {
             _ => {}
           }
         }
-        SymDecl::Local(storage, ..) => {
+        SymDecl::Local(..) => {
         }
         _ => { panic!("should be variable") }
       }
@@ -1905,13 +1904,13 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                                                 }
                                                 compatible_type(&e.ty, &d.ty)
                                             }
-                                            FunctionParameterDeclaration::Unnamed(_, d) => panic!(),
+                                            FunctionParameterDeclaration::Unnamed(..) => panic!(),
                                         };
                                     }
                                     assert!(matching);
                                     ret_ty = fd.prototype.ty.clone();
                                 }
-                                SymDecl::Struct(t) => {
+                                SymDecl::Struct(_) => {
                                     ret_ty = Type::new(TypeKind::Struct(sym))
                                 }
                                 _ => panic!("can only call functions")
@@ -2156,7 +2155,7 @@ fn translate_simple_statement(state: &mut State, s: &syntax::SimpleStatement) ->
         syntax::SimpleStatement::Selection(s) => SimpleStatement::Selection(translate_selection(state, s)),
         syntax::SimpleStatement::Jump(j) => SimpleStatement::Jump(translate_jump(state, j)),
         syntax::SimpleStatement::Switch(s) => SimpleStatement::Switch(translate_switch(state, s)),
-        syntax::SimpleStatement::CaseLabel(s) => panic!("should be handled by translate_switch")
+        syntax::SimpleStatement::CaseLabel(_) => panic!("should be handled by translate_switch")
     }
 }
 

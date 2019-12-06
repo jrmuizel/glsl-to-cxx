@@ -5,7 +5,6 @@ use glsl::syntax::{TranslationUnit, UnaryOp};
 
 mod hir;
 
-use hir::State;
 use hir::Type;
 use std::io::Read;
 use std::cell::{Cell, RefCell};
