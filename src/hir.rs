@@ -1,17 +1,16 @@
-use std::iter::{FromIterator, once};
+use std::iter::FromIterator;
 use std::ops::{Deref, DerefMut};
 use std::collections::HashMap;
 use std::cell::{Cell, Ref, RefCell};
 use std::rc::Rc;
 use std::mem;
 
-use glsl::syntax::{NonEmpty, TypeSpecifier, TypeSpecifierNonArray, InterpolationQualifier};
+use glsl::syntax::{NonEmpty, TypeSpecifier, TypeSpecifierNonArray};
 use glsl::syntax;
 use glsl::syntax::StructFieldSpecifier;
 use glsl::syntax::PrecisionQualifier;
 use glsl::syntax::ArrayedIdentifier;
 use glsl::syntax::ArraySpecifier;
-use glsl::syntax::TypeName;
 use glsl::syntax::StructSpecifier;
 use glsl::syntax::UnaryOp;
 use glsl::syntax::BinaryOp;
@@ -535,7 +534,6 @@ impl TypeKind {
 
 
     pub fn from_primitive_type_specifier(spec: &syntax::TypeSpecifierNonArray) -> Option<TypeKind> {
-        use syntax::TypeSpecifierNonArray;
         use TypeKind::*;
         Some(match spec {
             TypeSpecifierNonArray::Void => Void,
@@ -659,7 +657,6 @@ impl TypeKind {
 
 impl LiftFrom<&syntax::TypeSpecifierNonArray> for TypeKind {
     fn lift(state: &mut State, spec: &syntax::TypeSpecifierNonArray) -> Self {
-        use syntax::TypeSpecifierNonArray;
         use TypeKind::*;
         if let Some(kind) = TypeKind::from_primitive_type_specifier(spec) {
             kind
