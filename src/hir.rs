@@ -1337,7 +1337,8 @@ impl SimpleStatement {
         SimpleStatement::Selection(
             SelectionStatement {
                 cond: Box::new(ife.into()),
-                rest: SelectionRestStatement::Else(Box::new(truee.into()), Box::new(falsee.into()))
+                body: Box::new(truee.into()),
+                else_stmt: Some(Box::new(falsee.into()))
             }
         )
     }
@@ -1374,7 +1375,9 @@ pub type ExprStatement = Option<Expr>;
 #[derive(Clone, Debug, PartialEq)]
 pub struct SelectionStatement {
     pub cond: Box<Expr>,
-    pub rest: SelectionRestStatement
+    pub body: Box<Statement>,
+    // the else branch
+    pub else_stmt: Option<Box<Statement>>
 }
 
 /// Condition.
@@ -1387,15 +1390,6 @@ impl From<Expr> for Condition {
     fn from(expr: Expr) -> Self {
         Condition::Expr(Box::new(expr))
     }
-}
-
-/// Selection rest statement.
-#[derive(Clone, Debug, PartialEq)]
-pub enum SelectionRestStatement {
-    /// Body of the if.
-    Statement(Box<Statement>),
-    /// The first argument is the body of the if, the rest is the next statement.
-    Else(Box<Statement>, Box<Statement>)
 }
 
 /// Switch statement.
@@ -2119,19 +2113,22 @@ fn translate_case(state: &mut State, c: &syntax::CaseLabel) -> CaseLabel {
     }
 }
 
-fn translate_selection_rest(state: &mut State, s: &syntax::SelectionRestStatement) -> SelectionRestStatement {
+fn translate_selection_rest(state: &mut State, s: &syntax::SelectionRestStatement) -> (Box<Statement>, Option<Box<Statement>>) {
     match s {
-        syntax::SelectionRestStatement::Statement(s) => SelectionRestStatement::Statement(Box::new(translate_statement(state, s))),
+        syntax::SelectionRestStatement::Statement(s) => (Box::new(translate_statement(state, s)), None),
         syntax::SelectionRestStatement::Else(if_body, rest) => {
-            SelectionRestStatement::Else(Box::new(translate_statement(state, if_body)), Box::new(translate_statement(state, rest)))
+            (Box::new(translate_statement(state, if_body)), Some(Box::new(translate_statement(state, rest))))
         }
     }
 }
 
 fn translate_selection(state: &mut State, s: &syntax::SelectionStatement) -> SelectionStatement {
+    let cond = Box::new(translate_expression(state, &s.cond));
+    let (body, else_stmt) = translate_selection_rest(state, &s.rest);
     SelectionStatement {
-        cond: Box::new(translate_expression(state, &s.cond)),
-        rest: translate_selection_rest(state, &s.rest),
+        cond,
+        body,
+        else_stmt,
     }
 }
 
@@ -2637,14 +2634,9 @@ fn infer_selection_statement(state: &mut State, sst: &SelectionStatement) {
     mem::swap(&mut state.branch_run_class, &mut branch_run_class);
     let branch_declaration = state.branch_declaration;
     state.branch_declaration = state.last_declaration;
-    match sst.rest {
-        SelectionRestStatement::Statement(ref if_st) => {
-            infer_statement(state, if_st);
-        }
-        SelectionRestStatement::Else(ref if_st, ref else_st) => {
-            infer_statement(state, if_st);
-            infer_statement(state, else_st);
-        }
+    infer_statement(state, &sst.body);
+    if let Some(ref else_st) = sst.else_stmt {
+        infer_statement(state, else_st);
     }
     state.branch_run_class = branch_run_class;
     state.branch_declaration = branch_declaration;

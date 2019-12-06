@@ -2172,7 +2172,7 @@ pub fn show_expression_statement(state: &mut OutputState, est: &hir::ExprStateme
 pub fn show_selection_statement(state: &mut OutputState, sst: &hir::SelectionStatement) {
   if state.output_cxx && (state.return_declared || expr_run_class(state, &sst.cond) != hir::RunClass::Scalar) {
     let previous = state.mask.clone();
-    let mask = match mem::replace(&mut state.mask, None) {
+    state.mask = Some(match mem::replace(&mut state.mask, None) {
       Some(e) => {
         Box::new(hir::Expr {
           kind: hir::ExprKind::Binary(syntax::BinaryOp::And, e, sst.cond.clone()),
@@ -2180,52 +2180,58 @@ pub fn show_selection_statement(state: &mut OutputState, sst: &hir::SelectionSta
         })
       }
       None => sst.cond.clone(),
-    };
-    state.cond_index += 1;
-    show_indent(state);
-    write!(state, "auto _c{}_ = ", state.cond_index);
-    show_hir_expr(state, &mask);
-    state.write(";\n");
-    state.mask = Some(Box::new(hir::Expr { kind: hir::ExprKind::Cond(state.cond_index, mask), ty: hir::Type::new(hir::TypeKind::Bool) }));
-    show_selection_rest_statement(state, &sst.rest, true);
+    });
+
+    show_statement(state, &sst.body);
+
     state.mask = previous;
+
+    if let Some(rest) = &sst.else_stmt {
+      let previous = state.mask.clone();
+      // invert the condition
+      let inverted_cond =
+          Box::new(hir::Expr {
+            kind: hir::ExprKind::Unary(UnaryOp::Not, sst.cond.clone()),
+            ty: hir::Type::new(hir::TypeKind::Bool),
+          });
+
+      let mask = match mem::replace(&mut state.mask, None) {
+        Some(e) => {
+          Box::new(hir::Expr {
+            kind: hir::ExprKind::Binary(syntax::BinaryOp::And, e, inverted_cond),
+            ty: hir::Type::new(hir::TypeKind::Bool)
+          })
+        }
+        None => inverted_cond,
+      };
+
+      state.cond_index += 1;
+      show_indent(state);
+      write!(state, "auto _c{}_ = ", state.cond_index);
+      show_hir_expr(state, &mask);
+      state.write(";\n");
+      state.mask = Some(Box::new(hir::Expr { kind: hir::ExprKind::Cond(state.cond_index, mask), ty: hir::Type::new(hir::TypeKind::Bool) }));
+
+
+      show_statement(state, rest);
+      state.mask = previous;
+    }
   } else {
     show_indent(state);
     state.write("if (");
     show_hir_expr(state, &sst.cond);
     state.write(") {\n");
+
     state.indent();
-    show_selection_rest_statement(state, &sst.rest, false);
-  }
-}
+    show_statement(state, &sst.body);
+    state.outdent();
 
-pub fn show_selection_rest_statement(state: &mut OutputState, sst: &hir::SelectionRestStatement, lower: bool) {
-  match *sst {
-    hir::SelectionRestStatement::Statement(ref if_st) => {
-      show_statement(state, if_st);
-      if !lower {
-        state.outdent();
-        show_indent(state);
-        state.write("}\n");
-      }
-    }
-    hir::SelectionRestStatement::Else(ref if_st, ref else_st) => {
-
-      show_statement(state, if_st);
-
-      let previous = state.mask.clone();
-      // invert the mask condition
-      state.mask = state.mask.as_ref().map(|mask| Box::new(hir::Expr {
-        kind: hir::ExprKind::Unary(UnaryOp::Not, mask.clone()),
-        ty: hir::Type::new(hir::TypeKind::Bool) }));
-
-      if !lower {
-        state.outdent();
-        show_indent(state);
-        state.write("} else ");
-      }
-      show_statement(state, else_st);
-      state.mask = previous;
+    show_indent(state);
+    if let Some(rest) = &sst.else_stmt {
+      state.write("} else ");
+      show_statement(state, rest);
+    } else {
+      state.write("}\n");
     }
   }
 }
@@ -2327,7 +2333,7 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
     }
   };*/
 
-  let (cond, rest) = match (cond, cases.next()) {
+  let (cond, body, else_stmt) = match (cond, cases.next()) {
     (None, Some(next_case)) => {
       assert!(previous_stmts.is_none());
       // default so just move on to the next
@@ -2337,7 +2343,7 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
       assert!(previous_stmts.is_none());
       let (stmts, fallthrough) = case_stmts_to_if_stmts(&case.stmts, false);
       if !fallthrough && stmts.is_some() {
-          (cond, hir::SelectionRestStatement::Else(stmts.unwrap(), Box::new(
+          (cond, stmts.unwrap(), Some(Box::new(
             hir::Statement::Simple(
               Box::new(
                 hir::SimpleStatement::Selection(
@@ -2353,13 +2359,13 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
       let (stmts, _) = case_stmts_to_if_stmts(&case.stmts, default.is_none());
       let stmts = stmts.expect("empty case labels unsupported at the end");
       // add the default case at the end if we have one
-      (cond, match default {
+      (cond, stmts, match default {
         Some(default) => {
           let (default_stmts, fallthrough) = case_stmts_to_if_stmts(&default.stmts, true);
           assert!(!fallthrough);
-          hir::SelectionRestStatement::Else(stmts, default_stmts.expect("empty default unsupported"))
+          Some(default_stmts.expect("empty default unsupported"))
         },
-        None => hir::SelectionRestStatement::Statement(stmts)
+        None => None
       })
     }
     (None, None) => {
@@ -2374,14 +2380,14 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
       match previous_stmts {
         Some(previous_stmts) => {
           let cond = previous_condition.expect("must have previous condition");
-          (cond, hir::SelectionRestStatement::Else(previous_stmts, stmts))
+          (cond, previous_stmts, Some(stmts))
         }
         None => {
           let cond = Box::new(hir::Expr {
             kind: hir::ExprKind::BoolConst(true),
             ty: hir::Type::new(hir::TypeKind::Bool)
           });
-          (cond, hir::SelectionRestStatement::Statement(stmts))
+          (cond, stmts, None)
         }
       }
     }
@@ -2389,7 +2395,8 @@ fn build_selection<'a, I: Iterator<Item = &'a hir::Case>>(
 
   hir::SelectionStatement {
     cond,
-    rest,
+    body,
+    else_stmt
   }
 }
 
