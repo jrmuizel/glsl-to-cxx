@@ -457,7 +457,7 @@ fn write_store_outputs(state: &mut OutputState, outputs: &[hir::SymRef]) {
   }
   write!(state, "}}\n");
 
-  write!(state, "void store_interp_outputs(void* dest_ptr, size_t stride) {{\n");
+  write!(state, "void store_interp_outputs(char* dest_ptr, size_t stride) {{\n");
   write!(state, "  for(int n = 0; n < 4; n++) {{\n");
   write!(state, "    auto* dest = reinterpret_cast<InterpOutputs*>(dest_ptr);\n");
   for i in outputs {
@@ -472,7 +472,7 @@ fn write_store_outputs(state: &mut OutputState, outputs: &[hir::SymRef]) {
       _ => panic!()
     }
   }
-  write!(state, "    dest_ptr = reinterpret_cast<char*>(dest_ptr) + stride;\n");
+  write!(state, "    dest_ptr += stride;\n");
   write!(state, "  }}\n");
   write!(state, "}}\n");
 }
