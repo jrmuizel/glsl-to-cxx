@@ -817,6 +817,7 @@ pub struct State {
     branch_declaration: SymRef,
     modified_globals: RefCell<Vec<SymRef>>,
     pub used_fragcoord: i32,
+    pub used_uniforms: RefCell<Vec<SymRef>>,
 }
 
 impl State {
@@ -831,6 +832,7 @@ impl State {
             branch_declaration: SymRef(0),
             modified_globals: RefCell::new(Vec::new()),
             used_fragcoord: 0,
+            used_uniforms: RefCell::new(Vec::new()),
         }
     }
 
@@ -1759,7 +1761,18 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                 None => panic!("missing declaration {}", i.as_str())
             };
             let ty = match &state.sym(sym).decl {
-                SymDecl::Global(_, _, ty, _) => ty.clone(),
+                SymDecl::Global(storage, _, ty, _) => {
+                    match storage {
+                        StorageClass::Uniform => {
+                            let mut uniforms = state.used_uniforms.borrow_mut();
+                            if !uniforms.contains(&sym) {
+                                uniforms.push(sym);
+                            }
+                        }
+                        _ => {}
+                    }
+                    ty.clone()
+                }
                 SymDecl::Local(_, ty, _) => ty.clone(),
                 _ => panic!("bad variable type")
             };

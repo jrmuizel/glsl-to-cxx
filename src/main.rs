@@ -18,8 +18,8 @@ enum ShaderKind {
   Vertex
 }
 
-fn build_uniform_indices(indices: &mut BTreeMap<String, i32>, state: &hir::State, uniforms: &[hir::SymRef]) {
-  for u in uniforms {
+fn build_uniform_indices(indices: &mut BTreeMap<String, i32>, state: &hir::State) {
+  for u in state.used_uniforms.borrow().iter() {
     let next_index = indices.len() as i32 + 1;
     indices.entry(state.sym(*u).name.clone()).or_insert(next_index);
   }
@@ -37,10 +37,8 @@ fn main() {
 
   // we use a BTree so that iteration is stable
   let mut uniform_indices = BTreeMap::new();
-  let vertex_uniforms = gather_uniforms(&vs_state, &vs_hir);
-  build_uniform_indices(&mut uniform_indices, &vs_state, &vertex_uniforms);
-  let frag_uniforms = gather_uniforms(&fs_state, &fs_hir);
-  build_uniform_indices(&mut uniform_indices, &fs_state, &frag_uniforms);
+  build_uniform_indices(&mut uniform_indices, &vs_state);
+  build_uniform_indices(&mut uniform_indices, &fs_state);
 
   assert_eq!(fs_name, vs_name);
   write_get_uniform_index(&fs_name, &uniform_indices);
@@ -69,29 +67,6 @@ fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
   (state, hir, is_frag)
 }
 
-fn gather_uniforms(state: &hir::State, hir: &hir::TranslationUnit) -> Vec<hir::SymRef> {
-  let mut uniforms = Vec::new();
-  for i in hir {
-    match i {
-      hir::ExternalDeclaration::Declaration(hir::Declaration::InitDeclaratorList(ref d))  => {
-        match &state.sym(d.head.name).decl {
-          hir::SymDecl::Global(storage, ..) => {
-            match storage {
-              hir::StorageClass::Uniform => {
-                uniforms.push(d.head.name);
-              }
-              _ => {}
-            }
-          }
-          _ => {}
-        }
-      }
-      _ => {}
-    }
-  }
-  uniforms
-}
-
 fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool, uniform_indices: &BTreeMap<String, i32>) {
   use std::io::Write;
 
@@ -110,7 +85,9 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
           hir::SymDecl::Global(storage, ..) => {
             match storage {
               hir::StorageClass::Uniform => {
-                uniforms.push(d.head.name);
+                if state.used_uniforms.borrow().contains(&d.head.name) {
+                  uniforms.push(d.head.name);
+                }
               }
               hir::StorageClass::In => {
                 inputs.push(d.head.name)
@@ -230,7 +207,6 @@ fn matrix4_compatible(ty: hir::TypeKind) -> bool {
 }
 
 fn write_bind_textures(state: &mut OutputState, uniforms: &[hir::SymRef]) {
-
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
@@ -279,8 +255,8 @@ fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef], unif
         write!(state, "if (index == {}) {{\n", index);
         match ty.kind {
           hir::TypeKind::Int => write!(state, "{} = {}(value);\n", name, scalar_type_name(state, ty)),
-          hir::TypeKind::Sampler2D => write!(state, "{}_slot = value;\n", name),
-          hir::TypeKind::ISampler2D => write!(state, "{}_slot = value;\n", name),
+          hir::TypeKind::Sampler2D |
+          hir::TypeKind::ISampler2D |
           hir::TypeKind::Sampler2DArray => write!(state, "{}_slot = value;\n", name),
           _ => write!(state, "assert(0); // {}\n", name),
         };
