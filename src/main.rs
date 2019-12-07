@@ -19,9 +19,12 @@ enum ShaderKind {
 }
 
 fn build_uniform_indices(indices: &mut BTreeMap<String, i32>, state: &hir::State) {
-  for u in state.used_uniforms.borrow().iter() {
-    let next_index = indices.len() as i32 + 1;
-    indices.entry(state.sym(*u).name.clone()).or_insert(next_index);
+  for u in state.used_globals.borrow().iter() {
+    let sym = state.sym(*u);
+    if let hir::SymDecl::Global(hir::StorageClass::Uniform, ..) = &sym.decl {
+      let next_index = indices.len() as i32 + 1;
+      indices.entry(sym.name.clone()).or_insert(next_index);
+    }
   }
 }
 
@@ -82,18 +85,16 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     match i {
       hir::ExternalDeclaration::Declaration(hir::Declaration::InitDeclaratorList(ref d))  => {
         match &state.sym(d.head.name).decl {
-          hir::SymDecl::Global(storage, ..) => {
+          hir::SymDecl::Global(storage, ..) if state.used_globals.borrow().contains(&d.head.name) => {
             match storage {
               hir::StorageClass::Uniform => {
-                if state.used_uniforms.borrow().contains(&d.head.name) {
-                  uniforms.push(d.head.name);
-                }
+                uniforms.push(d.head.name);
               }
               hir::StorageClass::In => {
-                inputs.push(d.head.name)
+                inputs.push(d.head.name);
               }
               hir::StorageClass::Out => {
-                outputs.push(d.head.name)
+                outputs.push(d.head.name);
               }
               _ => {}
             }
