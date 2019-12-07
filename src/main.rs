@@ -457,21 +457,22 @@ fn write_store_outputs(state: &mut OutputState, outputs: &[hir::SymRef]) {
   }
   write!(state, "}}\n");
 
-  write!(state, "void store_interp_outputs(void* dest_ptr) {{\n");
-  write!(state, "  auto* dest = reinterpret_cast<InterpOutputs*>(dest_ptr);\n");
+  write!(state, "void store_interp_outputs(void* dest_ptr, size_t stride) {{\n");
   write!(state, "  for(int n = 0; n < 4; n++) {{\n");
+  write!(state, "    auto* dest = reinterpret_cast<InterpOutputs*>(dest_ptr);\n");
   for i in outputs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, _, run_class) => {
         if *run_class != hir::RunClass::Scalar {
           let name = sym.name.as_str();
-          write!(state, "    dest[n].{} = get_nth({}, n);\n", name, name);
+          write!(state, "    dest->{} = get_nth({}, n);\n", name, name);
         }
       }
       _ => panic!()
     }
   }
+  write!(state, "    dest_ptr = reinterpret_cast<char*>(dest_ptr) + stride;\n");
   write!(state, "  }}\n");
   write!(state, "}}\n");
 }
