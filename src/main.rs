@@ -370,13 +370,13 @@ fn type_name(state: &OutputState, ty: &Type) -> String {
 }
 
 fn write_load_attribs(state: &mut OutputState, attribs: &[hir::SymRef]) {
-  write!(state, "void load_attribs(VertexAttrib *attribs, unsigned short *indices, int start, int instance, int count = 3, int dest = 0) {{\n");
+  write!(state, "void load_attribs(VertexAttrib *attribs, unsigned short *indices, int start, int instance, int count) {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, interpolation, ty, run_class) => {
         let name = sym.name.as_str();
-        write!(state, "  load_attrib({}, attribs[{}_location_index], indices, start, instance, count, dest);\n", name, name);
+        write!(state, "  load_attrib({}, attribs[{}_location_index], indices, start, instance, count);\n", name, name);
       }
       _ => panic!()
     }
