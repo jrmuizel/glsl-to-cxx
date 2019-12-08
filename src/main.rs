@@ -44,7 +44,6 @@ fn main() {
   build_uniform_indices(&mut uniform_indices, &fs_state);
 
   assert_eq!(fs_name, vs_name);
-  write_get_uniform_index(&fs_name, &uniform_indices);
 
   translate_shader(vs_name, vs_state, vs_hir, vs_is_frag, &uniform_indices);
   translate_shader(fs_name, fs_state, fs_hir, fs_is_frag, &uniform_indices);
@@ -129,7 +128,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     uses_discard: false,
   };
 
-  show_translation_unit(&mut state, &hir, is_frag);
+  show_translation_unit(&mut state, &hir);
   let output_glsl = state.finish_output();
 
   state.should_indent = true;
@@ -156,24 +155,30 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
           ShaderKind::Vertex => "_vert",
           ShaderKind::Fragment => "_frag",
         };
-
-    write!(state, "struct {} {{\n", part_name);
-    write_set_uniform_int(&mut state, &uniforms, uniform_indices);
-    write_set_uniform_4f(&mut state, &uniforms, uniform_indices);
+    let shader_impl = match state.kind {
+        ShaderKind::Vertex => "VertexShaderImpl",
+        ShaderKind::Fragment => "FragmentShaderImpl",
+    };
+    write!(state, "struct {} : {} {{\n", part_name, shader_impl);
+    write_set_uniform_1i(&mut state, &uniforms, uniform_indices);
+    write_set_uniform_4fv(&mut state, &uniforms, uniform_indices);
     write_set_uniform_matrix4fv(&mut state, &uniforms, uniform_indices);
     if state.kind == ShaderKind::Vertex {
+      write_get_uniform_index(&mut state, &uniform_indices);
       write_bind_attrib_location(&mut state, &inputs);
       write_load_attribs(&mut state, &inputs);
       write_store_outputs(&mut state, &outputs);
     } else {
       write_read_inputs(&mut state, &inputs, name.to_owned() + "_vert");
-      write_get_output(&mut state, &outputs);
     }
     write_bind_textures(&mut state, &uniforms);
-  }
-  show_translation_unit(&mut state, &hir, is_frag);
-  if state.output_cxx {
+
+    show_translation_unit(&mut state, &hir);
+
+    write_abi(&mut state, &part_name);
     write!(state, "}};");
+  } else {
+    show_translation_unit(&mut state, &hir);
   }
   let output_cxx = state.finish_output();
 
@@ -185,13 +190,13 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
   println!("{}", output_cxx);
 }
 
-fn write_get_uniform_index(name: &str, uniform_indices: &BTreeMap<String, i32>) {
-  println!("static int {}_get_uniform_location(char *name) {{\n", name);
+fn write_get_uniform_index(state: &mut OutputState, uniform_indices: &BTreeMap<String, i32>) {
+  write!(state, "int get_uniform_location(const char *name) {{\n");
   for (uniform_name, index) in uniform_indices.iter() {
-    println!("if (strcmp(\"{}\", name) == 0) {{ return {}; }}\n", uniform_name, index);
+    write!(state, "if (strcmp(\"{}\", name) == 0) {{ return {}; }}\n", uniform_name, index);
   }
-  println!("return -1;\n");
-  println!("}}\n");
+  write!(state, "return -1;\n");
+  write!(state, "}}\n");
 }
 
 fn float4_compatible(ty: hir::TypeKind) -> bool {
@@ -245,8 +250,8 @@ fn write_bind_textures(state: &mut OutputState, uniforms: &[hir::SymRef]) {
   write!(state, "}}\n");
 }
 
-fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
-  write!(state, "void set_uniform_int(int index, int value) {{\n");
+fn write_set_uniform_1i(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
+  write!(state, "void set_uniform_1i(int index, int value) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
@@ -269,8 +274,8 @@ fn write_set_uniform_int(state: &mut OutputState, uniforms: &[hir::SymRef], unif
   write!(state, "}}\n");
 }
 
-fn write_set_uniform_4f(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
-  write!(state, "void set_uniform_4f(int index, float *value) {{\n");
+fn write_set_uniform_4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
+  write!(state, "void set_uniform_4fv(int index, const float *value) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
@@ -327,7 +332,7 @@ fn write_bind_attrib_location(state: &mut OutputState, attribs: &[hir::SymRef]) 
     }
   }
 
-  write!(state, "static void bind_attrib_location(char *name, int index) {{\n");
+  write!(state, "void bind_attrib_location(const char *name, int index) {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
@@ -509,17 +514,6 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef], vert_name:
     }
   }
   write!(state, "}}\n");
-}
-
-fn write_get_output(state: &mut OutputState, outputs: &[hir::SymRef]) {
-  write!(state, "vec4 get_output() {{ return ");
-  if let Some(o) = outputs.first() {
-    let sym = state.hir.sym(*o);
-    state.write(sym.name.as_str());
-  } else {
-    state.write("vec4()");
-  }
-  write!(state, "; }}\n");
 }
 
 pub struct OutputState {
@@ -1947,6 +1941,16 @@ fn symbol_run_class(decl: &hir::SymDecl, vector_mask: u32) -> hir::RunClass {
 
 pub fn show_single_declaration_cxx(state: &mut OutputState, d: &hir::SingleDeclaration) {
   let sym = state.hir.sym(d.name);
+  if state.kind == ShaderKind::Fragment {
+    match &sym.decl {
+      hir::SymDecl::Global(hir::StorageClass::Out, ..) => {
+          write!(state, "#define {} gl_FragColor\n", sym.name);
+          show_indent(state);
+          state.write("// ");
+      }
+      _ => {}
+    }
+  }
   let is_scalar = state.is_scalar.replace(symbol_run_class(&sym.decl, state.vector_mask) == hir::RunClass::Scalar);
 
   if let Some(ref array) = d.ty.array_sizes {
@@ -2841,13 +2845,9 @@ pub fn show_cxx_function_definition(state: &mut OutputState, name: hir::SymRef, 
   }
 }
 
-pub fn show_translation_unit(state: &mut OutputState, tu: &hir::TranslationUnit, is_frag: bool) {
+pub fn show_translation_unit(state: &mut OutputState, tu: &hir::TranslationUnit) {
   state.flush_buffer();
 
-  if state.output_cxx && is_frag {
-    state.write("Bool isPixelDiscarded = false;\n");
-    state.flush_buffer();
-  }
   for ed in &(tu.0).0 {
     show_external_declaration(state, ed);
     state.flush_buffer();
@@ -2857,16 +2857,56 @@ pub fn show_translation_unit(state: &mut OutputState, tu: &hir::TranslationUnit,
       show_cxx_function_definition(state, name, 0);
       state.flush_buffer();
     }
-    if is_frag {
-        if state.uses_discard {
-            state.write("bool uses_discard() { return true; }\n");
-            state.write("Bool discard_mask() { return isPixelDiscarded; }\n");
-        } else {
-            state.write("bool uses_discard() { return false; }\n");
-            state.write("Bool discard_mask() { return false; }\n");
-        }
-    }
-    state.flush_buffer();
   }
+}
+
+fn write_abi(state: &mut OutputState, name: &str) {
+    match state.kind {
+      ShaderKind::Fragment => {
+        if state.uses_discard {
+            state.write("bool use_discard() { return true; }\n");
+        } else {
+            state.write("bool use_discard() { return false; }\n");
+        }
+        state.write("void run(const void* step_ptr) {\n");
+        if (state.uses_discard) {
+            state.write(" isPixelDiscarded = false;\n");
+        }
+        state.write(" main();\n");
+        state.write(" step_interp_inputs(step_ptr);\n");
+        state.write("}\n");
+      }
+      ShaderKind::Vertex => {
+        state.write("void run(char* flats, char* interps, size_t interp_stride) {\n");
+        state.write(" main();\n");
+        state.write(" store_flat_outputs(flats);\n");
+        state.write(" store_interp_outputs(interps, interp_stride);\n");
+        state.write("}\n");
+      }
+    }
+    state.write(name);
+    state.write("() {\n");
+    write!(state, " typedef {} Self;\n", name);
+    state.write(" set_uniform_1i_func = (SetUniform1iFunc)&Self::set_uniform_1i;\n");
+    state.write(" set_uniform_4fv_func = (SetUniform4fvFunc)&Self::set_uniform_4fv;\n");
+    state.write(" set_uniform_matrix4fv_func = (SetUniformMatrix4fvFunc)&Self::set_uniform_matrix4fv;\n");
+    match state.kind {
+      ShaderKind::Fragment => {
+        state.write(" init_batch_func = (InitBatchFunc)&Self::bind_textures;\n");
+        state.write(" init_primitive_func = (InitPrimitiveFunc)&Self::read_flat_inputs;\n");
+        state.write(" init_span_func = (InitSpanFunc)&Self::read_interp_inputs;\n");
+        state.write(" run_func = (RunFunc)&Self::run;\n");
+        state.write(" skip_func = (SkipFunc)&Self::step_interp_inputs;\n");
+        state.write(" use_discard_func = (UseDiscardFunc)&Self::use_discard;\n");
+      }
+      ShaderKind::Vertex => {
+        state.write(" get_uniform_func = (GetUniformFunc)&Self::get_uniform_location;\n");
+        state.write(" bind_attrib_func = (BindAttribFunc)&Self::bind_attrib_location;\n");
+        state.write(" init_batch_func = (InitBatchFunc)&Self::bind_textures;\n");
+        state.write(" load_attribs_func = (LoadAttribsFunc)&Self::load_attribs;\n");
+        state.write(" run_func = (RunFunc)&Self::run;\n");
+      }
+    }
+    state.write("}\n");
 }
 
