@@ -180,9 +180,11 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
       write!(state, "struct {}_program : ProgramImpl {{\n", name);
       write!(state, "const char *get_name() const override {{ return \"{}\"; }}\n", name);
       write_get_uniform_index(&mut state, &uniform_indices);
+      write!(state, "{}_vert::AttribLocations attrib_locations;\n", name);
       write!(state, "void bind_attrib(const char *name, int index) override {{\n");
-      write!(state, " {}_vert::bind_attrib_location(name, index);\n", name);
+      write!(state, " {}_vert::bind_attrib_location(&attrib_locations, name, index);\n", name);
       write!(state, "}}\n");
+      write!(state, "const void* get_attrib_locations() const override {{ return &attrib_locations; }}\n");
       write!(state, "void init_shaders(void *vertex_shader, void *fragment_shader) override {{\n");
       write!(state, " new (vertex_shader) {}_vert;\n", name);
       write!(state, " new (fragment_shader) {}_frag;\n", name);
@@ -332,24 +334,23 @@ fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef]
 }
 
 fn write_bind_attrib_location(state: &mut OutputState, attribs: &[hir::SymRef]) {
-  let mut index = 1;
+  write!(state, "struct AttribLocations {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
-        write!(state, "static inline int {}_location_index;\n", sym.name.as_str());
-        index += 1;
+        write!(state, " int {};\n", sym.name.as_str());
       }
       _ => panic!()
     }
   }
-
-  write!(state, "static void bind_attrib_location(const char *name, int index) {{\n");
+  write!(state, "}};\n");
+  write!(state, "static void bind_attrib_location(AttribLocations* locs, const char *name, int index) {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
-        write!(state, "if (strcmp(\"{}\", name) == 0) {{ {}_location_index = index; }}\n", sym.name.as_str(), sym.name.as_str());
+        write!(state, "if (strcmp(\"{}\", name) == 0) {{ locs->{} = index; }}\n", sym.name.as_str(), sym.name.as_str());
       }
       _ => panic!()
     }
@@ -387,13 +388,13 @@ fn type_name(state: &OutputState, ty: &Type) -> String {
 }
 
 fn write_load_attribs(state: &mut OutputState, attribs: &[hir::SymRef]) {
-  write!(state, "void load_attribs(VertexAttrib *attribs, unsigned short *indices, int start, int instance, int count) {{\n");
+  write!(state, "void load_attribs(const AttribLocations *locs, VertexAttrib *attribs, unsigned short *indices, int start, int instance, int count) {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, interpolation, ty, run_class) => {
         let name = sym.name.as_str();
-        write!(state, "  load_attrib({}, attribs[{}_location_index], indices, start, instance, count);\n", name, name);
+        write!(state, "  load_attrib({}, attribs[locs->{}], indices, start, instance, count);\n", name, name);
       }
       _ => panic!()
     }
