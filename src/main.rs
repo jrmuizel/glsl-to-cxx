@@ -423,7 +423,7 @@ fn write_store_outputs(state: &mut OutputState, outputs: &[hir::SymRef]) {
   write!(state, "}};\n");
   state.is_scalar.set(is_scalar);
 
-  write!(state, "void store_flat_outputs(void* dest_ptr) {{\n");
+  write!(state, "ALWAYS_INLINE void store_flat_outputs(void* dest_ptr) {{\n");
   write!(state, "  auto* dest = reinterpret_cast<FlatOutputs*>(dest_ptr);\n");
   for i in outputs {
     let sym = state.hir.sym(*i);
@@ -439,7 +439,7 @@ fn write_store_outputs(state: &mut OutputState, outputs: &[hir::SymRef]) {
   }
   write!(state, "}}\n");
 
-  write!(state, "void store_interp_outputs(char* dest_ptr, size_t stride) {{\n");
+  write!(state, "ALWAYS_INLINE void store_interp_outputs(char* dest_ptr, size_t stride) {{\n");
   write!(state, "  for(int n = 0; n < 4; n++) {{\n");
   write!(state, "    auto* dest = reinterpret_cast<InterpOutputs*>(dest_ptr);\n");
   for i in outputs {
@@ -496,7 +496,7 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef], vert_name:
   }
   write!(state, "}}\n");
 
-  write!(state, "void step_interp_inputs(const void* step_ptr) {{\n");
+  write!(state, "ALWAYS_INLINE void step_interp_inputs(const void* step_ptr) {{\n");
   write!(state, "  auto* step = reinterpret_cast<const InterpInputs*>(step_ptr);\n");
   if (state.hir.used_fragcoord & 1) != 0 {
     write!(state, "  gl_FragCoord.x += 4;\n");
@@ -2033,6 +2033,9 @@ pub fn has_conditional_return(state: &mut OutputState, cst: &hir::CompoundStatem
 
 pub fn show_function_definition(state: &mut OutputState, fd: &hir::FunctionDefinition, vector_mask: u32, run_class: hir::RunClass) {
 //  println!("start {:?} {:?}", fd.prototype.name, vector_mask);
+  if state.output_cxx && fd.prototype.name.as_str() == "main" {
+    state.write("ALWAYS_INLINE ");
+  }
   show_function_prototype(state, &fd.prototype);
   state.write(" ");
   state.return_type = Some(Box::new(fd.prototype.ty.clone()));
@@ -2875,6 +2878,9 @@ fn write_abi(state: &mut OutputState, name: &str) {
         state.write(" main();\n");
         state.write(" step_interp_inputs(step_ptr);\n");
         state.write("}\n");
+        state.write("void skip(const void* step_ptr) {\n");
+        state.write(" step_interp_inputs(step_ptr);\n");
+        state.write("}\n");
       }
       ShaderKind::Vertex => {
         state.write("void run(char* flats, char* interps, size_t interp_stride) {\n");
@@ -2896,7 +2902,7 @@ fn write_abi(state: &mut OutputState, name: &str) {
         state.write(" init_primitive_func = (InitPrimitiveFunc)&Self::read_flat_inputs;\n");
         state.write(" init_span_func = (InitSpanFunc)&Self::read_interp_inputs;\n");
         state.write(" run_func = (RunFunc)&Self::run;\n");
-        state.write(" skip_func = (SkipFunc)&Self::step_interp_inputs;\n");
+        state.write(" skip_func = (SkipFunc)&Self::skip;\n");
         state.write(" use_discard_func = (UseDiscardFunc)&Self::use_discard;\n");
       }
       ShaderKind::Vertex => {
