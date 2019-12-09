@@ -160,6 +160,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
         ShaderKind::Fragment => "FragmentShaderImpl",
     };
     write!(state, "struct {} : {} {{\n", part_name, shader_impl);
+    write!(state, "typedef {} Self;\n", part_name);
     write_set_uniform_1i(&mut state, &uniforms, uniform_indices);
     write_set_uniform_4fv(&mut state, &uniforms, uniform_indices);
     write_set_uniform_matrix4fv(&mut state, &uniforms, uniform_indices);
@@ -245,16 +246,16 @@ fn write_bind_textures(state: &mut OutputState, uniforms: &[hir::SymRef]) {
     }
   }
 
-  write!(state, "void bind_textures() {{\n");
+  write!(state, "static void bind_textures(Self *self) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
         let name = sym.name.as_str();
         match ty.kind {
-          hir::TypeKind::Sampler2D => write!(state, "{} = lookup_sampler(&{}_impl, {}_slot);\n", name, name, name),
-          hir::TypeKind::ISampler2D => write!(state, "{} = lookup_isampler(&{}_impl, {}_slot);\n", name, name, name),
-          hir::TypeKind::Sampler2DArray => write!(state, "{} = lookup_sampler_array(&{}_impl, {}_slot);\n", name, name, name),
+          hir::TypeKind::Sampler2D => write!(state, "self->{} = lookup_sampler(&self->{}_impl, self->{}_slot);\n", name, name, name),
+          hir::TypeKind::ISampler2D => write!(state, "self->{} = lookup_isampler(&self->{}_impl, self->{}_slot);\n", name, name, name),
+          hir::TypeKind::Sampler2DArray => write!(state, "self->{} = lookup_sampler_array(&self->{}_impl, self->{}_slot);\n", name, name, name),
           _ => {}
         };
       }
@@ -265,7 +266,7 @@ fn write_bind_textures(state: &mut OutputState, uniforms: &[hir::SymRef]) {
 }
 
 fn write_set_uniform_1i(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
-  write!(state, "void set_uniform_1i(int index, int value) {{\n");
+  write!(state, "static void set_uniform_1i(Self *self, int index, int value) {{\n");
   write!(state, " switch (index) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
@@ -275,10 +276,10 @@ fn write_set_uniform_1i(state: &mut OutputState, uniforms: &[hir::SymRef], unifo
         let index = uniform_indices.get(name).unwrap();
         write!(state, " case {}:\n", index);
         match ty.kind {
-          hir::TypeKind::Int => write!(state, "  {} = {}(value);\n", name, scalar_type_name(state, ty)),
+          hir::TypeKind::Int => write!(state, "  self->{} = {}(value);\n", name, scalar_type_name(state, ty)),
           hir::TypeKind::Sampler2D |
           hir::TypeKind::ISampler2D |
-          hir::TypeKind::Sampler2DArray => write!(state, "  {}_slot = value;\n", name),
+          hir::TypeKind::Sampler2DArray => write!(state, "  self->{}_slot = value;\n", name),
           _ => write!(state, "  assert(0); // {}\n", name),
         };
         write!(state, "  break;\n");
@@ -291,7 +292,7 @@ fn write_set_uniform_1i(state: &mut OutputState, uniforms: &[hir::SymRef], unifo
 }
 
 fn write_set_uniform_4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
-  write!(state, "void set_uniform_4fv(int index, const float *value) {{\n");
+  write!(state, "static void set_uniform_4fv(Self *self, int index, const float *value) {{\n");
   write!(state, " switch (index) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
@@ -301,7 +302,7 @@ fn write_set_uniform_4fv(state: &mut OutputState, uniforms: &[hir::SymRef], unif
         let index = uniform_indices.get(name).unwrap();
         write!(state, " case {}:\n", index);
         if float4_compatible(ty.kind.clone()) {
-          write!(state, "  {} = {}(value);\n", name, scalar_type_name(state, ty));
+          write!(state, "  self->{} = {}(value);\n", name, scalar_type_name(state, ty));
         } else {
           write!(state, "  assert(0); // {}\n", name);
         }
@@ -315,7 +316,7 @@ fn write_set_uniform_4fv(state: &mut OutputState, uniforms: &[hir::SymRef], unif
 }
 
 fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
-  write!(state, "void set_uniform_matrix4fv(int index, const float *value) {{\n");
+  write!(state, "static void set_uniform_matrix4fv(Self *self, int index, const float *value) {{\n");
   write!(state, " switch (index) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
@@ -326,7 +327,7 @@ fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef]
 
         write!(state, " case {}:\n", index);
         if matrix4_compatible(ty.kind.clone()) {
-          write!(state, "  {} = mat4_scalar::load_from_ptr(value);\n", name);
+          write!(state, "  self->{} = mat4_scalar::load_from_ptr(value);\n", name);
         } else {
           write!(state, "  assert(0); // {}\n", name);
         }
@@ -394,13 +395,13 @@ fn type_name(state: &OutputState, ty: &Type) -> String {
 }
 
 fn write_load_attribs(state: &mut OutputState, attribs: &[hir::SymRef]) {
-  write!(state, "void load_attribs(const AttribLocations *locs, VertexAttrib *attribs, unsigned short *indices, int start, int instance, int count) {{\n");
+  write!(state, "static void load_attribs(Self *self, const AttribLocations *locs, VertexAttrib *attribs, unsigned short *indices, int start, int instance, int count) {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, interpolation, ty, run_class) => {
         let name = sym.name.as_str();
-        write!(state, " load_attrib({}, attribs[locs->{}], indices, start, instance, count);\n", name, name);
+        write!(state, " load_attrib(self->{}, attribs[locs->{}], indices, start, instance, count);\n", name, name);
       }
       _ => panic!()
     }
@@ -442,7 +443,7 @@ fn write_store_outputs(state: &mut OutputState, outputs: &[hir::SymRef]) {
   write!(state, "}};\n");
   state.is_scalar.set(is_scalar);
 
-  write!(state, "ALWAYS_INLINE void store_flat_outputs(void* dest_ptr) {{\n");
+  write!(state, "ALWAYS_INLINE void store_flat_outputs(char* dest_ptr) {{\n");
   write!(state, "  auto* dest = reinterpret_cast<FlatOutputs*>(dest_ptr);\n");
   for i in outputs {
     let sym = state.hir.sym(*i);
@@ -482,15 +483,14 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef], vert_name:
   write!(state, "typedef {}::FlatOutputs FlatInputs;\n", vert_name);
   write!(state, "typedef {}::InterpOutputs InterpInputs;\n", vert_name);
 
-  write!(state, "void read_flat_inputs(const void* src_ptr) {{\n");
-  write!(state, "  auto* src = reinterpret_cast<const FlatInputs*>(src_ptr);\n");
+  write!(state, "static void read_flat_inputs(Self *self, const FlatInputs *src) {{\n");
   for i in inputs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, _, run_class) => {
         if *run_class == hir::RunClass::Scalar {
           let name = sym.name.as_str();
-          write!(state, "  {} = src->{};\n", name, name);
+          write!(state, "  self->{} = src->{};\n", name, name);
         }
       }
       _ => panic!()
@@ -498,16 +498,14 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef], vert_name:
   }
   write!(state, "}}\n");
 
-  write!(state, "void read_interp_inputs(const void* init_ptr, const void* step_ptr) {{\n");
-  write!(state, "  auto* init = reinterpret_cast<const InterpInputs*>(init_ptr);\n");
-  write!(state, "  auto* step = reinterpret_cast<const InterpInputs*>(step_ptr);\n");
+  write!(state, "static void read_interp_inputs(Self *self, const InterpInputs *init, const InterpInputs *step) {{\n");
   for i in inputs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, _, run_class) => {
         if *run_class != hir::RunClass::Scalar {
           let name = sym.name.as_str();
-          write!(state, "  {0} = init_interp(init->{0}, step->{0});\n", name);
+          write!(state, "  self->{0} = init_interp(init->{0}, step->{0});\n", name);
         }
       }
       _ => panic!()
@@ -515,8 +513,7 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef], vert_name:
   }
   write!(state, "}}\n");
 
-  write!(state, "ALWAYS_INLINE void step_interp_inputs(const void* step_ptr) {{\n");
-  write!(state, "  auto* step = reinterpret_cast<const InterpInputs*>(step_ptr);\n");
+  write!(state, "ALWAYS_INLINE void step_interp_inputs(const InterpInputs* step) {{\n");
   if (state.hir.used_fragcoord & 1) != 0 {
     write!(state, "  step_fragcoord();\n");
   }
@@ -2885,49 +2882,46 @@ pub fn show_translation_unit(state: &mut OutputState, tu: &hir::TranslationUnit)
 fn write_abi(state: &mut OutputState, name: &str) {
     match state.kind {
       ShaderKind::Fragment => {
+        state.write("static bool use_discard(Self*) { return ");
+        state.write(if state.uses_discard { "true" } else { "false" });
+        state.write("; }\n");
+        state.write("static void run(Self *self, const InterpInputs* step) {\n");
         if state.uses_discard {
-            state.write("bool use_discard() { return true; }\n");
-        } else {
-            state.write("bool use_discard() { return false; }\n");
+            state.write(" self->isPixelDiscarded = false;\n");
         }
-        state.write("void run(const void* step_ptr) {\n");
-        if (state.uses_discard) {
-            state.write(" isPixelDiscarded = false;\n");
-        }
-        state.write(" main();\n");
-        state.write(" step_interp_inputs(step_ptr);\n");
+        state.write(" self->main();\n");
+        state.write(" self->step_interp_inputs(step);\n");
         state.write("}\n");
-        state.write("void skip(const void* step_ptr) {\n");
-        state.write(" step_interp_inputs(step_ptr);\n");
+        state.write("static void skip(Self *self, const InterpInputs* step) {\n");
+        state.write(" self->step_interp_inputs(step);\n");
         state.write("}\n");
       }
       ShaderKind::Vertex => {
-        state.write("void run(char* flats, char* interps, size_t interp_stride) {\n");
-        state.write(" main();\n");
-        state.write(" store_flat_outputs(flats);\n");
-        state.write(" store_interp_outputs(interps, interp_stride);\n");
+        state.write("static void run(Self *self, char* flats, char* interps, size_t interp_stride) {\n");
+        state.write(" self->main();\n");
+        state.write(" self->store_flat_outputs(flats);\n");
+        state.write(" self->store_interp_outputs(interps, interp_stride);\n");
         state.write("}\n");
       }
     }
     state.write(name);
     state.write("() {\n");
-    write!(state, " typedef {} Self;\n", name);
-    state.write(" set_uniform_1i_func = (SetUniform1iFunc)&Self::set_uniform_1i;\n");
-    state.write(" set_uniform_4fv_func = (SetUniform4fvFunc)&Self::set_uniform_4fv;\n");
-    state.write(" set_uniform_matrix4fv_func = (SetUniformMatrix4fvFunc)&Self::set_uniform_matrix4fv;\n");
+    state.write(" set_uniform_1i_func = (SetUniform1iFunc)&set_uniform_1i;\n");
+    state.write(" set_uniform_4fv_func = (SetUniform4fvFunc)&set_uniform_4fv;\n");
+    state.write(" set_uniform_matrix4fv_func = (SetUniformMatrix4fvFunc)&set_uniform_matrix4fv;\n");
     match state.kind {
       ShaderKind::Fragment => {
-        state.write(" init_batch_func = (InitBatchFunc)&Self::bind_textures;\n");
-        state.write(" init_primitive_func = (InitPrimitiveFunc)&Self::read_flat_inputs;\n");
-        state.write(" init_span_func = (InitSpanFunc)&Self::read_interp_inputs;\n");
-        state.write(" run_func = (RunFunc)&Self::run;\n");
-        state.write(" skip_func = (SkipFunc)&Self::skip;\n");
-        state.write(" use_discard_func = (UseDiscardFunc)&Self::use_discard;\n");
+        state.write(" init_batch_func = (InitBatchFunc)&bind_textures;\n");
+        state.write(" init_primitive_func = (InitPrimitiveFunc)&read_flat_inputs;\n");
+        state.write(" init_span_func = (InitSpanFunc)&read_interp_inputs;\n");
+        state.write(" run_func = (RunFunc)&run;\n");
+        state.write(" skip_func = (SkipFunc)&skip;\n");
+        state.write(" use_discard_func = (UseDiscardFunc)&use_discard;\n");
       }
       ShaderKind::Vertex => {
-        state.write(" init_batch_func = (InitBatchFunc)&Self::bind_textures;\n");
-        state.write(" load_attribs_func = (LoadAttribsFunc)&Self::load_attribs;\n");
-        state.write(" run_func = (RunFunc)&Self::run;\n");
+        state.write(" init_batch_func = (InitBatchFunc)&bind_textures;\n");
+        state.write(" load_attribs_func = (LoadAttribsFunc)&load_attribs;\n");
+        state.write(" run_func = (RunFunc)&run;\n");
       }
     }
     state.write("}\n");
