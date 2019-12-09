@@ -164,7 +164,6 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     write_set_uniform_4fv(&mut state, &uniforms, uniform_indices);
     write_set_uniform_matrix4fv(&mut state, &uniforms, uniform_indices);
     if state.kind == ShaderKind::Vertex {
-      write_get_uniform_index(&mut state, &uniform_indices);
       write_bind_attrib_location(&mut state, &inputs);
       write_load_attribs(&mut state, &inputs);
       write_store_outputs(&mut state, &outputs);
@@ -176,7 +175,20 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     show_translation_unit(&mut state, &hir);
 
     write_abi(&mut state, &part_name);
-    write!(state, "}};");
+    write!(state, "}};\n");
+    if state.kind == ShaderKind::Fragment {
+      write!(state, "struct {}_program : ProgramImpl {{\n", name);
+      write!(state, "const char *get_name() const override {{ return \"{}\"; }}\n", name);
+      write_get_uniform_index(&mut state, &uniform_indices);
+      write!(state, "void bind_attrib(const char *name, int index) override {{\n");
+      write!(state, " {}_vert::bind_attrib_location(name, index);\n", name);
+      write!(state, "}}\n");
+      write!(state, "void init_shaders(void *vertex_shader, void *fragment_shader) override {{\n");
+      write!(state, " new (vertex_shader) {}_vert;\n", name);
+      write!(state, " new (fragment_shader) {}_frag;\n", name);
+      write!(state, "}}\n");
+      write!(state, "}};\n");
+    }
   } else {
     show_translation_unit(&mut state, &hir);
   }
@@ -191,11 +203,11 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
 }
 
 fn write_get_uniform_index(state: &mut OutputState, uniform_indices: &BTreeMap<String, i32>) {
-  write!(state, "int get_uniform_location(const char *name) {{\n");
+  write!(state, "int get_uniform(const char *name) const override {{\n");
   for (uniform_name, index) in uniform_indices.iter() {
-    write!(state, "if (strcmp(\"{}\", name) == 0) {{ return {}; }}\n", uniform_name, index);
+    write!(state, " if (strcmp(\"{}\", name) == 0) {{ return {}; }}\n", uniform_name, index);
   }
-  write!(state, "return -1;\n");
+  write!(state, " return -1;\n");
   write!(state, "}}\n");
 }
 
@@ -332,7 +344,7 @@ fn write_bind_attrib_location(state: &mut OutputState, attribs: &[hir::SymRef]) 
     }
   }
 
-  write!(state, "void bind_attrib_location(const char *name, int index) {{\n");
+  write!(state, "static void bind_attrib_location(const char *name, int index) {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
@@ -2906,8 +2918,6 @@ fn write_abi(state: &mut OutputState, name: &str) {
         state.write(" use_discard_func = (UseDiscardFunc)&Self::use_discard;\n");
       }
       ShaderKind::Vertex => {
-        state.write(" get_uniform_func = (GetUniformFunc)&Self::get_uniform_location;\n");
-        state.write(" bind_attrib_func = (BindAttribFunc)&Self::bind_attrib_location;\n");
         state.write(" init_batch_func = (InitBatchFunc)&Self::bind_textures;\n");
         state.write(" load_attribs_func = (LoadAttribsFunc)&Self::load_attribs;\n");
         state.write(" run_func = (RunFunc)&Self::run;\n");
