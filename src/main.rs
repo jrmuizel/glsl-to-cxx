@@ -266,52 +266,57 @@ fn write_bind_textures(state: &mut OutputState, uniforms: &[hir::SymRef]) {
 
 fn write_set_uniform_1i(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
   write!(state, "void set_uniform_1i(int index, int value) {{\n");
+  write!(state, " switch (index) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
         let name = sym.name.as_str();
         let index = uniform_indices.get(name).unwrap();
-        write!(state, "if (index == {}) {{\n", index);
+        write!(state, " case {}:\n", index);
         match ty.kind {
-          hir::TypeKind::Int => write!(state, "{} = {}(value);\n", name, scalar_type_name(state, ty)),
+          hir::TypeKind::Int => write!(state, "  {} = {}(value);\n", name, scalar_type_name(state, ty)),
           hir::TypeKind::Sampler2D |
           hir::TypeKind::ISampler2D |
-          hir::TypeKind::Sampler2DArray => write!(state, "{}_slot = value;\n", name),
-          _ => write!(state, "assert(0); // {}\n", name),
+          hir::TypeKind::Sampler2DArray => write!(state, "  {}_slot = value;\n", name),
+          _ => write!(state, "  assert(0); // {}\n", name),
         };
-        write!(state, "}}\n");
+        write!(state, "  break;\n");
       }
       _ => panic!()
     }
   }
+  write!(state, " }}\n");
   write!(state, "}}\n");
 }
 
 fn write_set_uniform_4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
   write!(state, "void set_uniform_4fv(int index, const float *value) {{\n");
+  write!(state, " switch (index) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
         let name = sym.name.as_str();
         let index = uniform_indices.get(name).unwrap();
-        write!(state, "if (index == {}) {{\n", index);
+        write!(state, " case {}:\n", index);
         if float4_compatible(ty.kind.clone()) {
-          write!(state, "{} = {}(value);\n", name, scalar_type_name(state, ty));
+          write!(state, "  {} = {}(value);\n", name, scalar_type_name(state, ty));
         } else {
-          write!(state, "assert(0); // {}\n", name);
+          write!(state, "  assert(0); // {}\n", name);
         }
-        write!(state, "}}\n");
+        write!(state, "  break;\n");
       }
       _ => panic!()
     }
   }
+  write!(state, " }}\n");
   write!(state, "}}\n");
 }
 
 fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, i32>) {
   write!(state, "void set_uniform_matrix4fv(int index, const float *value) {{\n");
+  write!(state, " switch (index) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
@@ -319,17 +324,18 @@ fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef]
         let name = sym.name.as_str();
         let index = uniform_indices.get(name).unwrap();
 
-        write!(state, "if (index == {}) {{\n", index);
+        write!(state, " case {}:\n", index);
         if matrix4_compatible(ty.kind.clone()) {
-          write!(state, "{} = mat4_scalar::load_from_ptr(value);\n", name);
+          write!(state, "  {} = mat4_scalar::load_from_ptr(value);\n", name);
         } else {
-          write!(state, "assert(0); // {}\n", name);
+          write!(state, "  assert(0); // {}\n", name);
         }
-        write!(state, "}}\n");
+        write!(state, "  break;\n");
       }
       _ => panic!()
     }
   }
+  write!(state, " }}\n");
   write!(state, "}}\n");
 }
 
@@ -350,7 +356,7 @@ fn write_bind_attrib_location(state: &mut OutputState, attribs: &[hir::SymRef]) 
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
-        write!(state, "if (strcmp(\"{}\", name) == 0) {{ locs->{} = index; }}\n", sym.name.as_str(), sym.name.as_str());
+        write!(state, " if (strcmp(\"{}\", name) == 0) {{ locs->{} = index; return; }}\n", sym.name.as_str(), sym.name.as_str());
       }
       _ => panic!()
     }
@@ -394,7 +400,7 @@ fn write_load_attribs(state: &mut OutputState, attribs: &[hir::SymRef]) {
     match &sym.decl {
       hir::SymDecl::Global(_, interpolation, ty, run_class) => {
         let name = sym.name.as_str();
-        write!(state, "  load_attrib({}, attribs[locs->{}], indices, start, instance, count);\n", name, name);
+        write!(state, " load_attrib({}, attribs[locs->{}], indices, start, instance, count);\n", name, name);
       }
       _ => panic!()
     }
