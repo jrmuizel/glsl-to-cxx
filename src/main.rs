@@ -499,7 +499,7 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef], vert_name:
   write!(state, "ALWAYS_INLINE void step_interp_inputs(const void* step_ptr) {{\n");
   write!(state, "  auto* step = reinterpret_cast<const InterpInputs*>(step_ptr);\n");
   if (state.hir.used_fragcoord & 1) != 0 {
-    write!(state, "  gl_FragCoord.x += 4;\n");
+    write!(state, "  step_fragcoord();\n");
   }
   for i in inputs {
     let sym = state.hir.sym(*i);
