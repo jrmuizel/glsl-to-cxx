@@ -162,17 +162,22 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     };
 
     if state.kind == ShaderKind::Vertex {
+      write!(state, "struct {}_program : ProgramImpl {{\n", name);
+      write!(state, "const char *get_name() const override {{ return \"{}\"; }}\n", name);
+      write_get_uniform_index(&mut state, uniform_indices);
       write_program_samplers(&mut state, uniform_indices);
+      write_bind_attrib_location(&mut state, &inputs);
+      write!(state, "void init_shaders(void *vertex_shader, void *fragment_shader) override;\n");
+      write!(state, "}};\n");
+
     }
 
     write!(state, "struct {} : {} {{\n", part_name, shader_impl);
     write!(state, "typedef {} Self;\n", part_name);
-    write!(state, "typedef {}_samplers Samplers;\n", name);
     write_set_uniform_1i(&mut state, &uniforms, uniform_indices);
     write_set_uniform_4fv(&mut state, &uniforms, uniform_indices);
     write_set_uniform_matrix4fv(&mut state, &uniforms, uniform_indices);
     if state.kind == ShaderKind::Vertex {
-      write_bind_attrib_location(&mut state, &inputs);
       write_load_attribs(&mut state, &inputs);
       write_store_outputs(&mut state, &outputs);
     } else {
@@ -186,21 +191,10 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     write!(state, "}};\n");
 
     if state.kind == ShaderKind::Fragment {
-      write!(state, "struct {}_program : ProgramImpl {{\n", name);
-      write!(state, "const char *get_name() const override {{ return \"{}\"; }}\n", name);
-      write_get_uniform_index(&mut state, &uniform_indices);
-      write!(state, "{}_samplers samplers;\n", name);
-      write!(state, "virtual void *get_samplers() override {{ return &samplers; }}\n");
-      write!(state, "{}_vert::AttribLocations attrib_locations;\n", name);
-      write!(state, "void bind_attrib(const char *name, int index) override {{\n");
-      write!(state, " {}_vert::bind_attrib_location(&attrib_locations, name, index);\n", name);
-      write!(state, "}}\n");
-      write!(state, "const void* get_attrib_locations() const override {{ return &attrib_locations; }}\n");
-      write!(state, "void init_shaders(void *vertex_shader, void *fragment_shader) override {{\n");
+      write!(state, "void {}_program::init_shaders(void *vertex_shader, void *fragment_shader) {{\n", name);
       write!(state, " reinterpret_cast<{}_vert*>(vertex_shader)->init_shader();\n", name);
       write!(state, " reinterpret_cast<{}_frag*>(fragment_shader)->init_shader();\n", name);
       write!(state, "}}\n");
-      write!(state, "}};\n");
     }
   } else {
     show_translation_unit(&mut state, &hir);
@@ -238,7 +232,7 @@ fn matrix4_compatible(ty: hir::TypeKind) -> bool {
 }
 
 fn write_program_samplers(state: &mut OutputState, uniform_indices: &BTreeMap<String, (i32, hir::TypeKind)>) {
-  write!(state, "struct {}_samplers {{\n", state.name);
+  write!(state, "struct Samplers {{\n");
   for (name, (_, tk)) in uniform_indices.iter() {
     match tk {
       hir::TypeKind::Sampler2D | hir::TypeKind::ISampler2D | hir::TypeKind::Sampler2DArray => {
@@ -250,20 +244,36 @@ fn write_program_samplers(state: &mut OutputState, uniform_indices: &BTreeMap<St
       _ => {}
     }
   }
-  write!(state, "}};\n");
+  write!(state, "}} samplers;\n");
+
+  write!(state, "bool set_sampler(int index, int value) override {{\n");
+  write!(state, " switch (index) {{\n");
+  for (name, (index, tk)) in uniform_indices.iter() {
+    match tk {
+      hir::TypeKind::Sampler2D | hir::TypeKind::ISampler2D | hir::TypeKind::Sampler2DArray => {
+        write!(state, " case {}:\n", index);
+        write!(state, "  samplers.{}_slot = value;\n", name);
+        write!(state, "  return true;\n");
+      }
+      _ => {}
+    }
+  }
+  write!(state, " }}\n");
+  write!(state, " return false;\n");
+  write!(state, "}}\n");
 }
 
 fn write_bind_textures(state: &mut OutputState, uniforms: &[hir::SymRef]) {
-  write!(state, "static void bind_textures(Self *self, Samplers *samplers) {{\n");
+  write!(state, "static void bind_textures(Self *self, {}_program *prog) {{\n", state.name);
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
         let name = sym.name.as_str();
         match ty.kind {
-          hir::TypeKind::Sampler2D => write!(state, " self->{} = lookup_sampler(&samplers->{}_impl, samplers->{}_slot);\n", name, name, name),
-          hir::TypeKind::ISampler2D => write!(state, " self->{} = lookup_isampler(&samplers->{}_impl, samplers->{}_slot);\n", name, name, name),
-          hir::TypeKind::Sampler2DArray => write!(state, " self->{} = lookup_sampler_array(&samplers->{}_impl, samplers->{}_slot);\n", name, name, name),
+          hir::TypeKind::Sampler2D => write!(state, " self->{} = lookup_sampler(&prog->samplers.{}_impl, prog->samplers.{}_slot);\n", name, name, name),
+          hir::TypeKind::ISampler2D => write!(state, " self->{} = lookup_isampler(&prog->samplers.{}_impl, prog->samplers.{}_slot);\n", name, name, name),
+          hir::TypeKind::Sampler2DArray => write!(state, " self->{} = lookup_sampler_array(&prog->samplers.{}_impl, prog->samplers.{}_slot);\n", name, name, name),
           _ => {}
         };
       }
@@ -274,7 +284,7 @@ fn write_bind_textures(state: &mut OutputState, uniforms: &[hir::SymRef]) {
 }
 
 fn write_set_uniform_1i(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, (i32, hir::TypeKind)>) {
-  write!(state, "static void set_uniform_1i(Self *self, Samplers *samplers, int index, int value) {{\n");
+  write!(state, "static void set_uniform_1i(Self *self, int index, int value) {{\n");
   write!(state, " switch (index) {{\n");
   for i in uniforms {
     let sym = state.hir.sym(*i);
@@ -285,9 +295,6 @@ fn write_set_uniform_1i(state: &mut OutputState, uniforms: &[hir::SymRef], unifo
         write!(state, " case {}:\n", index);
         match ty.kind {
           hir::TypeKind::Int => write!(state, "  self->{} = {}(value);\n", name, scalar_type_name(state, ty)),
-          hir::TypeKind::Sampler2D |
-          hir::TypeKind::ISampler2D |
-          hir::TypeKind::Sampler2DArray => write!(state, "  samplers->{}_slot = value;\n", name),
           _ => write!(state, "  assert(0); // {}\n", name),
         };
         write!(state, "  break;\n");
@@ -359,13 +366,13 @@ fn write_bind_attrib_location(state: &mut OutputState, attribs: &[hir::SymRef]) 
       _ => panic!()
     }
   }
-  write!(state, "}};\n");
-  write!(state, "static void bind_attrib_location(AttribLocations* locs, const char *name, int index) {{\n");
+  write!(state, "}} attrib_locations;\n");
+  write!(state, "void bind_attrib(const char *name, int index) override {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
-        write!(state, " if (strcmp(\"{}\", name) == 0) {{ locs->{} = index; return; }}\n", sym.name.as_str(), sym.name.as_str());
+        write!(state, " if (strcmp(\"{}\", name) == 0) {{ attrib_locations.{} = index; return; }}\n", sym.name.as_str(), sym.name.as_str());
       }
       _ => panic!()
     }
@@ -403,13 +410,13 @@ fn type_name(state: &OutputState, ty: &Type) -> String {
 }
 
 fn write_load_attribs(state: &mut OutputState, attribs: &[hir::SymRef]) {
-  write!(state, "static void load_attribs(Self *self, const AttribLocations *locs, VertexAttrib *attribs, unsigned short *indices, int start, int instance, int count) {{\n");
+  write!(state, "static void load_attribs(Self *self, {}_program *prog, VertexAttrib *attribs, unsigned short *indices, int start, int instance, int count) {{\n", state.name);
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, interpolation, ty, run_class) => {
         let name = sym.name.as_str();
-        write!(state, " load_attrib(self->{}, attribs[locs->{}], indices, start, instance, count);\n", name, name);
+        write!(state, " load_attrib(self->{}, attribs[prog->attrib_locations.{}], indices, start, instance, count);\n", name, name);
       }
       _ => panic!()
     }
