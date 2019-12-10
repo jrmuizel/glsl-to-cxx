@@ -1520,10 +1520,10 @@ fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorL
                 match qual {
                     syntax::TypeQualifierSpec::Storage(s) => {
                         match (&storage, s) {
+                            (StorageClass::FragColor(index), syntax::StorageQualifier::Out) => {
+                            }
                             (StorageClass::None, syntax::StorageQualifier::Out) => {
-                                if storage == StorageClass::None {
-                                    storage = StorageClass::Out
-                                }
+                                storage = StorageClass::Out
                             }
                             (StorageClass::None, syntax::StorageQualifier::In) => {
                                 storage = StorageClass::In
@@ -1563,6 +1563,7 @@ fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorL
                         if index >= 0 {
                             assert!(loc == 0);
                             assert!(index <= 1);
+                            assert!(storage == StorageClass::None || storage == StorageClass::Out);
                             storage = StorageClass::FragColor(index);
                         }
                     }
