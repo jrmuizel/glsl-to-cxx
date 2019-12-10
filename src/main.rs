@@ -92,7 +92,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
               hir::StorageClass::In => {
                 inputs.push(d.head.name);
               }
-              hir::StorageClass::Out => {
+              hir::StorageClass::Out | hir::StorageClass::FragColor(_) => {
                 outputs.push(d.head.name);
               }
               _ => {}
@@ -770,6 +770,7 @@ pub fn show_storage_class(state: &OutputState, q: &hir::StorageClass) {
     hir::StorageClass::Const => { state.write("const "); }
     hir::StorageClass::In => { state.write("in "); }
     hir::StorageClass::Out => { state.write("out "); }
+    hir::StorageClass::FragColor(index) => { write!(state, "layout(location = 0, index = {}) out ", index); }
     hir::StorageClass::Uniform => { state.write("uniform "); }
   }
 }
@@ -1975,6 +1976,16 @@ pub fn show_single_declaration_cxx(state: &mut OutputState, d: &hir::SingleDecla
   let sym = state.hir.sym(d.name);
   if state.kind == ShaderKind::Fragment {
     match &sym.decl {
+      hir::SymDecl::Global(hir::StorageClass::FragColor(index), ..) => {
+          let fragcolor = match index {
+            0 => "gl_FragColor",
+            1 => "gl_SecondaryFragColor",
+            _ => panic!(),
+          };
+          write!(state, "#define {} {}\n", sym.name, fragcolor);
+          show_indent(state);
+          state.write("// ");
+      }
       hir::SymDecl::Global(hir::StorageClass::Out, ..) => {
           write!(state, "#define {} gl_FragColor\n", sym.name);
           show_indent(state);

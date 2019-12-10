@@ -49,6 +49,7 @@ pub enum StorageClass {
     In,
     Out,
     Uniform,
+    FragColor(i32),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1485,6 +1486,16 @@ fn translate_struct_declaration(state: &mut State, d: &syntax::SingleDeclaration
     Declaration::StructDefinition(ty_def)
 }
 
+fn get_expr_index(e: &syntax::Expr) -> i32 {
+    match e {
+    syntax::Expr::IntConst(i) => *i,
+    syntax::Expr::UIntConst(u) => *u as i32,
+    syntax::Expr::FloatConst(f) => *f as i32,
+    syntax::Expr::DoubleConst(f) => *f as i32,
+    _ => panic!(),
+    }
+}
+
 fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorList, default_run_class: RunClass) -> Declaration {
     let mut ty = d.head.ty.clone();
     ty.ty.array_specifier = d.head.array_specifier.clone();
@@ -1510,7 +1521,9 @@ fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorL
                     syntax::TypeQualifierSpec::Storage(s) => {
                         match (&storage, s) {
                             (StorageClass::None, syntax::StorageQualifier::Out) => {
-                                storage = StorageClass::Out
+                                if storage == StorageClass::None {
+                                    storage = StorageClass::Out
+                                }
                             }
                             (StorageClass::None, syntax::StorageQualifier::In) => {
                                 storage = StorageClass::In
@@ -1530,6 +1543,27 @@ fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorL
                                 interpolation = Some(i.clone())
                             }
                             _ => panic!("multiple interpolation")
+                        }
+                    }
+                    syntax::TypeQualifierSpec::Layout(l) => {
+                        let mut loc = -1;
+                        let mut index = -1;
+                        for id in &l.ids {
+                            match id {
+                                syntax::LayoutQualifierSpec::Identifier(ref key, Some(ref e)) => {
+                                    match key.as_str() {
+                                    "location" => { loc = get_expr_index(e); }
+                                    "index" => { index = get_expr_index(e); }
+                                    _ => {}
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        if index >= 0 {
+                            assert!(loc == 0);
+                            assert!(index <= 1);
+                            storage = StorageClass::FragColor(index);
                         }
                     }
                     _ => {}
