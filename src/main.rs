@@ -513,7 +513,8 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef]) {
   }
   write!(state, "}}\n");
 
-  write!(state, "static void read_interp_inputs(Self *self, const InterpInputs *init, const InterpInputs *step) {{\n");
+  write!(state, "InterpInputs interp_step;\n");
+  write!(state, "static void read_interp_inputs(Self *self, const InterpInputs *init, const InterpInputs *step, float step_width) {{\n");
   for i in inputs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
@@ -521,6 +522,7 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef]) {
         if *run_class != hir::RunClass::Scalar {
           let name = sym.name.as_str();
           write!(state, "  self->{0} = init_interp(init->{0}, step->{0});\n", name);
+          write!(state, "  self->interp_step.{0} = step->{0} * step_width;\n", name); 
         }
       }
       _ => panic!()
@@ -528,7 +530,7 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef]) {
   }
   write!(state, "}}\n");
 
-  write!(state, "ALWAYS_INLINE void step_interp_inputs(const InterpInputs* step) {{\n");
+  write!(state, "ALWAYS_INLINE void step_interp_inputs() {{\n");
   if (state.hir.used_fragcoord & 1) != 0 {
     write!(state, "  step_fragcoord();\n");
   }
@@ -538,7 +540,7 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef]) {
       hir::SymDecl::Global(_, _, _, run_class) => {
         if *run_class != hir::RunClass::Scalar {
           let name = sym.name.as_str();
-          write!(state, "  {} += step->{};\n", name, name);
+          write!(state, "  {} += interp_step.{};\n", name, name);
         }
       }
       _ => panic!()
@@ -2912,15 +2914,15 @@ fn write_abi(state: &mut OutputState) {
         state.write("static bool use_discard(Self*) { return ");
         state.write(if state.uses_discard { "true" } else { "false" });
         state.write("; }\n");
-        state.write("static void run(Self *self, const InterpInputs* step) {\n");
+        state.write("static void run(Self *self) {\n");
         if state.uses_discard {
             state.write(" self->isPixelDiscarded = false;\n");
         }
         state.write(" self->main();\n");
-        state.write(" self->step_interp_inputs(step);\n");
+        state.write(" self->step_interp_inputs();\n");
         state.write("}\n");
-        state.write("static void skip(Self *self, const InterpInputs* step) {\n");
-        state.write(" self->step_interp_inputs(step);\n");
+        state.write("static void skip(Self *self) {\n");
+        state.write(" self->step_interp_inputs();\n");
         state.write("}\n");
       }
       ShaderKind::Vertex => {
