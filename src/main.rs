@@ -18,12 +18,22 @@ enum ShaderKind {
   Vertex
 }
 
-fn build_uniform_indices(indices: &mut BTreeMap<String, (i32, hir::TypeKind)>, state: &hir::State) {
+type UniformIndices = BTreeMap<String, (i32, hir::TypeKind, hir::StorageClass)>;
+
+fn build_uniform_indices(indices: &mut UniformIndices, state: &hir::State) {
   for u in state.used_globals.borrow().iter() {
     let sym = state.sym(*u);
-    if let hir::SymDecl::Global(hir::StorageClass::Uniform, _, ty, _) = &sym.decl {
-      let next_index = indices.len() as i32 + 1;
-      indices.entry(sym.name.clone()).or_insert((next_index, ty.kind.clone()));
+    match &sym.decl {
+        hir::SymDecl::Global(storage, _, ty, _) => {
+            match storage {
+                hir::StorageClass::Uniform | hir::StorageClass::Sampler(..) => {
+                    let next_index = indices.len() as i32 + 1;
+                    indices.entry(sym.name.clone()).or_insert((next_index, ty.kind.clone(), *storage));
+                }
+                _ => {}
+            }
+        }
+        _ => {}
     }
   }
 }
@@ -69,7 +79,7 @@ fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
   (state, hir, is_frag)
 }
 
-fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool, uniform_indices: &BTreeMap<String, (i32, hir::TypeKind)>) {
+fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool, uniform_indices: &UniformIndices) {
   use std::io::Write;
 
   //println!("{:#?}", state);
@@ -86,7 +96,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
         match &state.sym(d.head.name).decl {
           hir::SymDecl::Global(storage, ..) if state.used_globals.borrow().contains(&d.head.name) => {
             match storage {
-              hir::StorageClass::Uniform => {
+              hir::StorageClass::Uniform | hir::StorageClass::Sampler(..) => {
                 uniforms.push(d.head.name);
               }
               hir::StorageClass::In => {
@@ -209,9 +219,9 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
   println!("{}", output_cxx);
 }
 
-fn write_get_uniform_index(state: &mut OutputState, uniform_indices: &BTreeMap<String, (i32, hir::TypeKind)>) {
+fn write_get_uniform_index(state: &mut OutputState, uniform_indices: &UniformIndices) {
   write!(state, "int get_uniform(const char *name) const override {{\n");
-  for (uniform_name, (index, _)) in uniform_indices.iter() {
+  for (uniform_name, (index, _, _)) in uniform_indices.iter() {
     write!(state, " if (strcmp(\"{}\", name) == 0) {{ return {}; }}\n", uniform_name, index);
   }
   write!(state, " return -1;\n");
@@ -231,14 +241,15 @@ fn matrix4_compatible(ty: hir::TypeKind) -> bool {
   }
 }
 
-fn write_program_samplers(state: &mut OutputState, uniform_indices: &BTreeMap<String, (i32, hir::TypeKind)>) {
+fn write_program_samplers(state: &mut OutputState, uniform_indices: &UniformIndices) {
   write!(state, "struct Samplers {{\n");
-  for (name, (_, tk)) in uniform_indices.iter() {
+  for (name, (_, tk, storage)) in uniform_indices.iter() {
     match tk {
       hir::TypeKind::Sampler2D | hir::TypeKind::ISampler2D | hir::TypeKind::Sampler2DArray => {
         write!(state, " ");
         show_type_kind(state, &tk);
-        write!(state, "_impl {}_impl;\n", name);
+        let suffix = if let hir::StorageClass::Sampler(format) = storage { format.type_suffix() } else { None };
+        write!(state, "{}_impl {}_impl;\n", suffix.unwrap_or(""), name);
         write!(state, " int {}_slot;\n", name);
       }
       _ => {}
@@ -248,7 +259,7 @@ fn write_program_samplers(state: &mut OutputState, uniform_indices: &BTreeMap<St
 
   write!(state, "bool set_sampler(int index, int value) override {{\n");
   write!(state, " switch (index) {{\n");
-  for (name, (index, tk)) in uniform_indices.iter() {
+  for (name, (index, tk, _)) in uniform_indices.iter() {
     match tk {
       hir::TypeKind::Sampler2D | hir::TypeKind::ISampler2D | hir::TypeKind::Sampler2DArray => {
         write!(state, " case {}:\n", index);
@@ -268,7 +279,7 @@ fn write_bind_textures(state: &mut OutputState, uniforms: &[hir::SymRef]) {
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
-      hir::SymDecl::Global(_, _, ty, _) => {
+      hir::SymDecl::Global(hir::StorageClass::Sampler(format), _, ty, _) => {
         let name = sym.name.as_str();
         match ty.kind {
           hir::TypeKind::Sampler2D => write!(state, " self->{} = lookup_sampler(&prog->samplers.{}_impl, prog->samplers.{}_slot);\n", name, name, name),
@@ -277,13 +288,14 @@ fn write_bind_textures(state: &mut OutputState, uniforms: &[hir::SymRef]) {
           _ => {}
         };
       }
+      hir::SymDecl::Global(..) => {}
       _ => panic!()
     }
   }
   write!(state, "}}\n");
 }
 
-fn write_set_uniform_1i(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, (i32, hir::TypeKind)>) {
+fn write_set_uniform_1i(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &UniformIndices) {
   write!(state, "static void set_uniform_1i(Self *self, int index, int value) {{\n");
   write!(state, " switch (index) {{\n");
   for i in uniforms {
@@ -291,7 +303,7 @@ fn write_set_uniform_1i(state: &mut OutputState, uniforms: &[hir::SymRef], unifo
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
         let name = sym.name.as_str();
-        let (index, _) = uniform_indices.get(name).unwrap();
+        let (index, _, _) = uniform_indices.get(name).unwrap();
         write!(state, " case {}:\n", index);
         match ty.kind {
           hir::TypeKind::Int => write!(state, "  self->{} = {}(value);\n", name, scalar_type_name(state, ty)),
@@ -306,7 +318,7 @@ fn write_set_uniform_1i(state: &mut OutputState, uniforms: &[hir::SymRef], unifo
   write!(state, "}}\n");
 }
 
-fn write_set_uniform_4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, (i32, hir::TypeKind)>) {
+fn write_set_uniform_4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &UniformIndices) {
   write!(state, "static void set_uniform_4fv(Self *self, int index, const float *value) {{\n");
   write!(state, " switch (index) {{\n");
   for i in uniforms {
@@ -314,7 +326,7 @@ fn write_set_uniform_4fv(state: &mut OutputState, uniforms: &[hir::SymRef], unif
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
         let name = sym.name.as_str();
-        let (index, _) = uniform_indices.get(name).unwrap();
+        let (index, _, _) = uniform_indices.get(name).unwrap();
         write!(state, " case {}:\n", index);
         if float4_compatible(ty.kind.clone()) {
           write!(state, "  self->{} = {}(value);\n", name, scalar_type_name(state, ty));
@@ -330,7 +342,7 @@ fn write_set_uniform_4fv(state: &mut OutputState, uniforms: &[hir::SymRef], unif
   write!(state, "}}\n");
 }
 
-fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &BTreeMap<String, (i32, hir::TypeKind)>) {
+fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef], uniform_indices: &UniformIndices) {
   write!(state, "static void set_uniform_matrix4fv(Self *self, int index, const float *value) {{\n");
   write!(state, " switch (index) {{\n");
   for i in uniforms {
@@ -338,7 +350,7 @@ fn write_set_uniform_matrix4fv(state: &mut OutputState, uniforms: &[hir::SymRef]
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
         let name = sym.name.as_str();
-        let (index, _) = uniform_indices.get(name).unwrap();
+        let (index, _, _) = uniform_indices.get(name).unwrap();
 
         write!(state, " case {}:\n", index);
         if matrix4_compatible(ty.kind.clone()) {
@@ -522,7 +534,7 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef]) {
         if *run_class != hir::RunClass::Scalar {
           let name = sym.name.as_str();
           write!(state, "  self->{0} = init_interp(init->{0}, step->{0});\n", name);
-          write!(state, "  self->interp_step.{0} = step->{0} * step_width;\n", name); 
+          write!(state, "  self->interp_step.{0} = step->{0} * step_width;\n", name);
         }
       }
       _ => panic!()
@@ -773,7 +785,7 @@ pub fn show_storage_class(state: &OutputState, q: &hir::StorageClass) {
     hir::StorageClass::In => { state.write("in "); }
     hir::StorageClass::Out => { state.write("out "); }
     hir::StorageClass::FragColor(index) => { write!(state, "layout(location = 0, index = {}) out ", index); }
-    hir::StorageClass::Uniform => { state.write("uniform "); }
+    hir::StorageClass::Uniform | hir::StorageClass::Sampler(..) => { state.write("uniform "); }
   }
 }
 
@@ -1976,6 +1988,13 @@ fn symbol_run_class(decl: &hir::SymDecl, vector_mask: u32) -> hir::RunClass {
 
 pub fn show_single_declaration_cxx(state: &mut OutputState, d: &hir::SingleDeclaration) {
   let sym = state.hir.sym(d.name);
+  match &sym.decl {
+    hir::SymDecl::Global(hir::StorageClass::Sampler(format), ..) => {
+      write!(state, "{}{} {}", d.ty.kind.cxx_primitive_type_name().unwrap(), format.type_suffix().unwrap_or(""), sym.name.as_str());
+      return;
+    }
+    _ => {}
+  }
   if state.kind == ShaderKind::Fragment {
     match &sym.decl {
       hir::SymDecl::Global(hir::StorageClass::FragColor(index), ..) => {

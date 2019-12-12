@@ -43,12 +43,34 @@ pub struct FunctionType {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SamplerFormat {
+    Unknown,
+    RGBA8,
+    RGBA32F,
+    RGBA32I,
+    R8,
+}
+
+impl SamplerFormat {
+    pub fn type_suffix(self) -> Option<&'static str> {
+        match self {
+            SamplerFormat::Unknown => None,
+            SamplerFormat::RGBA8 => Some("RGBA8"),
+            SamplerFormat::RGBA32F => Some("RGBA32F"),
+            SamplerFormat::RGBA32I => Some("RGBA32I"),
+            SamplerFormat::R8 => Some("R8"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StorageClass {
     None,
     Const,
     In,
     Out,
     Uniform,
+    Sampler(SamplerFormat),
     FragColor(i32),
 }
 
@@ -1520,19 +1542,25 @@ fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorL
                 match qual {
                     syntax::TypeQualifierSpec::Storage(s) => {
                         match (&storage, s) {
-                            (StorageClass::FragColor(index), syntax::StorageQualifier::Out) => {
+                            (StorageClass::FragColor(..), syntax::StorageQualifier::Out) => {
+                            }
+                            (StorageClass::Sampler(..), syntax::StorageQualifier::Uniform) => {
                             }
                             (StorageClass::None, syntax::StorageQualifier::Out) => {
-                                storage = StorageClass::Out
+                                storage = StorageClass::Out;
                             }
                             (StorageClass::None, syntax::StorageQualifier::In) => {
-                                storage = StorageClass::In
+                                storage = StorageClass::In;
                             }
                             (StorageClass::None, syntax::StorageQualifier::Uniform) => {
-                                storage = StorageClass::Uniform
+                                if ty.kind.is_sampler() {
+                                    storage = StorageClass::Sampler(SamplerFormat::Unknown);
+                                } else {
+                                    storage = StorageClass::Uniform;
+                                }
                             }
                             (StorageClass::None, syntax::StorageQualifier::Const) => {
-                                storage = StorageClass::Const
+                                storage = StorageClass::Const;
                             }
                             _ => panic!("bad storage {:?}", (storage, s))
                         }
@@ -1550,6 +1578,15 @@ fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorL
                         let mut index = -1;
                         for id in &l.ids {
                             match id {
+                                syntax::LayoutQualifierSpec::Identifier(ref key, None) => {
+                                    match key.as_str() {
+                                    "rgba8" => { storage = StorageClass::Sampler(SamplerFormat::RGBA8); }
+                                    "rgba32f" => { storage = StorageClass::Sampler(SamplerFormat::RGBA32F); }
+                                    "rgba32i" => { storage = StorageClass::Sampler(SamplerFormat::RGBA32I); }
+                                    "r8" => { storage = StorageClass::Sampler(SamplerFormat::R8); }
+                                    _ => {}
+                                    }
+                                }
                                 syntax::LayoutQualifierSpec::Identifier(ref key, Some(ref e)) => {
                                     match key.as_str() {
                                     "location" => { loc = get_expr_index(e); }
@@ -1563,7 +1600,7 @@ fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorL
                         if index >= 0 {
                             assert!(loc == 0);
                             assert!(index <= 1);
-                            assert!(storage == StorageClass::None || storage == StorageClass::Out);
+                            assert!(storage == StorageClass::None);
                             storage = StorageClass::FragColor(index);
                         }
                     }
@@ -1579,8 +1616,8 @@ fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorL
                 SymDecl::Local(storage, ty.clone(), run_class)
             } else {
                 let run_class = match storage {
-                    StorageClass::Const | StorageClass::Uniform => RunClass::Scalar,
-                    StorageClass::In | StorageClass::Out
+                    StorageClass::Const | StorageClass::Uniform | StorageClass::Sampler(..) => RunClass::Scalar,
+                    StorageClass::In | StorageClass::Out | StorageClass::FragColor(..)
                         if interpolation == Some(syntax::InterpolationQualifier::Flat) => RunClass::Scalar,
                     _ => RunClass::Vector,
                 };
