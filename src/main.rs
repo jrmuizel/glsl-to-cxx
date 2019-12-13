@@ -428,7 +428,8 @@ fn write_load_attribs(state: &mut OutputState, attribs: &[hir::SymRef]) {
     match &sym.decl {
       hir::SymDecl::Global(_, interpolation, ty, run_class) => {
         let name = sym.name.as_str();
-        write!(state, " load_attrib(self->{}, attribs[prog->attrib_locations.{}], indices, start, instance, count);\n", name, name);
+        let func = if *run_class == hir::RunClass::Scalar { "load_flat_attrib" } else { "load_attrib" };
+        write!(state, " {}(self->{}, attribs[prog->attrib_locations.{}], indices, start, instance, count);\n", func, name, name);
       }
       _ => panic!()
     }
