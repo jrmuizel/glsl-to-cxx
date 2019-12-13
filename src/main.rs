@@ -1166,17 +1166,18 @@ pub fn show_parameter_qualifier(state: &mut OutputState, i: &Option<hir::Paramet
 
 pub fn show_float(state: &OutputState, x: f32) {
   if x.fract() == 0. {
-    write!(state, "{}.", x);
+    write!(state, "{}.f", x);
   } else {
-    write!(state, "{}", x);
+    write!(state, "{}f", x);
   }
 }
 
 pub fn show_double(state: &OutputState, x: f64) {
+  // force doubles to print as floats
   if x.fract() == 0. {
-    write!(state, "{}.", x);
+    write!(state, "{}.f",x );
   } else {
-    write!(state, "{}", x);
+    write!(state, "{}f", x);
   }
 }
 
