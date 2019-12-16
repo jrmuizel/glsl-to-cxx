@@ -1,5 +1,5 @@
 [package]
-name = "glsl-to-cpp"
+name = "glsl-to-cxx"
 version = "0.1.0"
 authors = ["Jeff Muizelaar <jrmuizel@gmail.com>"]
 edition = "2018"
