@@ -45,11 +45,11 @@ pub fn translate(args: &mut dyn Iterator<Item = String>) -> String {
   let _cmd_name = args.next();
   let vertex_file = args.next().unwrap();
 
-  let vs_name = vertex_file.split(".").next().unwrap().to_owned();
+  let vs_name = std::path::Path::new(&vertex_file).file_name().unwrap().to_string_lossy().split(".").next().unwrap().to_owned();
 
   let frag_file = args.next().unwrap();
 
-  let fs_name = frag_file.split(".").next().unwrap().to_owned();
+  let fs_name = std::path::Path::new(&frag_file).file_name().unwrap().to_string_lossy().split(".").next().unwrap().to_owned();
 
   let (vs_state, vs_hir, vs_is_frag) = parse_shader(vertex_file);
   let (fs_state, fs_hir, fs_is_frag) = parse_shader(frag_file);
