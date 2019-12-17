@@ -38,11 +38,17 @@ fn build_uniform_indices(indices: &mut UniformIndices, state: &hir::State) {
   }
 }
 
-pub fn translate(arg: &dyn Iterator<Item = String>) {
-  let vertex_file = std::env::args().nth(1).unwrap();
+
+
+pub fn translate(args: &mut dyn Iterator<Item = String>) -> String {
+
+  let _cmd_name = args.next();
+  let vertex_file = args.next().unwrap();
+
   let vs_name = vertex_file.split(".").next().unwrap().to_owned();
 
-  let frag_file = std::env::args().nth(2).unwrap();
+  let frag_file = args.next().unwrap();
+
   let fs_name = frag_file.split(".").next().unwrap().to_owned();
 
   let (vs_state, vs_hir, vs_is_frag) = parse_shader(vertex_file);
@@ -55,8 +61,10 @@ pub fn translate(arg: &dyn Iterator<Item = String>) {
 
   assert_eq!(fs_name, vs_name);
 
-  translate_shader(vs_name, vs_state, vs_hir, vs_is_frag, &uniform_indices);
-  translate_shader(fs_name, fs_state, fs_hir, fs_is_frag, &uniform_indices);
+  let mut result = translate_shader(vs_name, vs_state, vs_hir, vs_is_frag, &uniform_indices);
+  result += "\n";
+  result += &translate_shader(fs_name, fs_state, fs_hir, fs_is_frag, &uniform_indices);
+  result
 }
 
 fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
@@ -79,7 +87,7 @@ fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
   (state, hir, is_frag)
 }
 
-fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool, uniform_indices: &UniformIndices) {
+fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool, uniform_indices: &UniformIndices) -> String {
   use std::io::Write;
 
   //println!("{:#?}", state);
@@ -215,8 +223,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
   let mut hir = std::fs::File::create("hir").unwrap();
   hir.write(output_glsl.as_bytes());
 
-
-  println!("{}", output_cxx);
+  output_cxx
 }
 
 fn write_get_uniform_index(state: &mut OutputState, uniform_indices: &UniformIndices) {
