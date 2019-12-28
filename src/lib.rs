@@ -79,8 +79,8 @@ fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
   let mut ast_glsl = String::new();
   let r = r.unwrap();
   glsl::transpiler::glsl::show_translation_unit(&mut ast_glsl, &r);
-  let mut fast = std::fs::File::create("ast").unwrap();
-  fast.write(ast_glsl.as_bytes());
+  //let mut fast = std::fs::File::create("ast").unwrap();
+  //fast.write(ast_glsl.as_bytes());
 
   let mut state = hir::State::new();
   let hir = hir::ast_to_hir(&mut state, &r);
@@ -220,8 +220,8 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
   let output_cxx = state.finish_output();
 
 
-  let mut hir = std::fs::File::create("hir").unwrap();
-  hir.write(output_glsl.as_bytes());
+  //let mut hir = std::fs::File::create("hir").unwrap();
+  //hir.write(output_glsl.as_bytes());
 
   output_cxx
 }
