@@ -38,18 +38,15 @@ fn build_uniform_indices(indices: &mut UniformIndices, state: &hir::State) {
   }
 }
 
-
-
 pub fn translate(args: &mut dyn Iterator<Item = String>) -> String {
-
   let _cmd_name = args.next();
   let vertex_file = args.next().unwrap();
 
-  let vs_name = std::path::Path::new(&vertex_file).file_name().unwrap().to_string_lossy().split(".").next().unwrap().to_owned();
+  let vs_name = std::path::Path::new(&vertex_file).file_stem().unwrap().to_string_lossy().trim_end_matches(".vert").replace('.', "_");
 
   let frag_file = args.next().unwrap();
 
-  let fs_name = std::path::Path::new(&frag_file).file_name().unwrap().to_string_lossy().split(".").next().unwrap().to_owned();
+  let fs_name = std::path::Path::new(&frag_file).file_stem().unwrap().to_string_lossy().trim_end_matches(".frag").replace('.', "_");
 
   let (vs_state, vs_hir, vs_is_frag) = parse_shader(vertex_file);
   let (fs_state, fs_hir, fs_is_frag) = parse_shader(frag_file);
