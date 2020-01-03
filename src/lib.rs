@@ -1075,6 +1075,8 @@ pub fn show_syntax_storage_qualifier(state: &OutputState, q: &syntax::StorageQua
     syntax::StorageQualifier::Patch => { state.write("patch"); }
     syntax::StorageQualifier::Sample => { state.write("sample"); }
     syntax::StorageQualifier::Uniform => { state.write("uniform"); }
+    syntax::StorageQualifier::Attribute => { state.write("attribute"); }
+    syntax::StorageQualifier::Varying => { state.write("varying"); }
     syntax::StorageQualifier::Buffer => { state.write("buffer"); }
     syntax::StorageQualifier::Shared => { state.write("shared"); }
     syntax::StorageQualifier::Coherent => { state.write("coherent"); }
