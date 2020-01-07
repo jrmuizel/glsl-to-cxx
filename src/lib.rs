@@ -205,6 +205,8 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     write_abi(&mut state);
     write!(state, "}};\n");
 
+    define_global_consts(&mut state, &hir, &part_name);
+
     if state.kind == ShaderKind::Fragment {
       write!(state, "void {}_program::init_shaders(void *vertex_shader, void *fragment_shader) {{\n", name);
       write!(state, " reinterpret_cast<{}_vert*>(vertex_shader)->init_shader();\n", name);
@@ -2039,7 +2041,7 @@ pub fn show_single_declaration_cxx(state: &mut OutputState, d: &hir::SingleDecla
   state.write(" ");
   show_sym_decl(state, &d.name);
 
-  state.is_scalar.set(false);
+  state.is_scalar.set(is_scalar);
 
   if let Some(ref initializer) = d.initializer {
     state.write(" = ");
@@ -2980,5 +2982,33 @@ fn write_abi(state: &mut OutputState) {
       }
     }
     state.write("}\n");
+}
+
+pub fn define_global_consts(state: &mut OutputState, tu: &hir::TranslationUnit, part_name: &str) {
+  for i in tu {
+    match i {
+      hir::ExternalDeclaration::Declaration(hir::Declaration::InitDeclaratorList(ref d))  => {
+        let sym = state.hir.sym(d.head.name);
+        match &sym.decl {
+          hir::SymDecl::Global(hir::StorageClass::Const, ..) => {
+            let is_scalar = state.is_scalar.replace(symbol_run_class(&sym.decl, state.vector_mask) == hir::RunClass::Scalar);
+            if let Some(ref array) = d.head.ty.array_sizes {
+              show_type(state, &d.head.ty);
+            } else {
+              if let Some(ty_def) = d.head.ty_def {
+                show_sym_decl(state, &ty_def);
+              } else {
+                show_type(state, &d.head.ty);
+              }
+            }
+            write!(state, " constexpr {}::{};\n", part_name, sym.name);
+            state.is_scalar.set(is_scalar);
+          }
+          _ => {}
+        }
+      }
+      _ => {}
+    }
+  }
 }
 
