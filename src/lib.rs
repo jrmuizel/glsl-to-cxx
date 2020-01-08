@@ -379,7 +379,7 @@ fn write_bind_attrib_location(state: &mut OutputState, attribs: &[hir::SymRef]) 
     let sym = state.hir.sym(*i);
     match &sym.decl {
       hir::SymDecl::Global(_, _, ty, _) => {
-        write!(state, " int {};\n", sym.name.as_str());
+        write!(state, " int {} = NULL_ATTRIB;\n", sym.name.as_str());
       }
       _ => panic!()
     }
