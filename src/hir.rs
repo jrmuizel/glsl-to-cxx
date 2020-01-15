@@ -2418,6 +2418,13 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
                      vec![Type::new(Float), Type::new(Float), Type::new(Float),
                           Type::new(Float), Type::new(Float), Type::new(Float),
                           Type::new(Float), Type::new(Float), Type::new(Float)]);
+    declare_function(state, "mat4", Some("make_mat4"), Type::new(Mat4),
+                     vec![Type::new(Vec4), Type::new(Vec4), Type::new(Vec4), Type::new(Vec4)]);
+    declare_function(state, "mat4", Some("make_mat4"), Type::new(Mat4),
+                     vec![Type::new(Float), Type::new(Float), Type::new(Float), Type::new(Float),
+                          Type::new(Float), Type::new(Float), Type::new(Float), Type::new(Float),
+                          Type::new(Float), Type::new(Float), Type::new(Float), Type::new(Float),
+                          Type::new(Float), Type::new(Float), Type::new(Float), Type::new(Float)]);
     declare_function(state, "abs", None, Type::new(Vec2),
                      vec![Type::new(Vec2)]);
     declare_function(state, "abs", None, Type::new(Vec3),
