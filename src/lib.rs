@@ -142,6 +142,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     deps: RefCell::new(Vec::new()),
     vector_mask: 0,
     uses_discard: false,
+    used_globals: RefCell::new(Vec::new()),
   };
 
   show_translation_unit(&mut state, &hir);
@@ -189,18 +190,23 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
 
     write!(state, "struct {} : {} {{\n", part_name, shader_impl);
     write!(state, "typedef {} Self;\n", part_name);
+
+    show_translation_unit(&mut state, &hir);
+
     write_set_uniform_1i(&mut state, &uniforms, uniform_indices);
     write_set_uniform_4fv(&mut state, &uniforms, uniform_indices);
     write_set_uniform_matrix4fv(&mut state, &uniforms, uniform_indices);
+
+    let pruned_inputs: Vec<_> = inputs.iter().filter(|i| state.used_globals.borrow().contains(i)).cloned().collect();
+    let pruned_uniforms: Vec<_> = uniforms.iter().filter(|u| state.used_globals.borrow().contains(u)).cloned().collect();
+
     if state.kind == ShaderKind::Vertex {
-      write_load_attribs(&mut state, &inputs);
+      write_load_attribs(&mut state, &pruned_inputs);
       write_store_outputs(&mut state, &outputs);
     } else {
-      write_read_inputs(&mut state, &inputs);
+      write_read_inputs(&mut state, &pruned_inputs);
     }
-    write_bind_textures(&mut state, &uniforms);
-
-    show_translation_unit(&mut state, &hir);
+    write_bind_textures(&mut state, &pruned_uniforms);
 
     write_abi(&mut state);
     write!(state, "}};\n");
@@ -588,6 +594,7 @@ pub struct OutputState {
   deps: RefCell<Vec<(hir::SymRef, u32)>>,
   vector_mask: u32,
   uses_discard: bool,
+  used_globals: RefCell<Vec<hir::SymRef>>,
 }
 
 use std::fmt::{Arguments, Write};
@@ -653,7 +660,21 @@ pub fn show_sym(state: &OutputState, i: &hir::SymRef) {
       }
       state.write(name);
     }
-    hir::SymDecl::UserFunction(..) | hir::SymDecl::Global(..) | hir::SymDecl::Local(..) | hir::SymDecl::Struct(..) => {
+    hir::SymDecl::Global(..) => {
+      if state.output_cxx {
+        let mut globals = state.used_globals.borrow_mut();
+        if !globals.contains(i) {
+          globals.push(*i);
+        }
+      }
+
+      let mut name = sym.name.as_str();
+      if state.output_cxx {
+        name = glsl_primitive_type_name_to_cxx(name);
+      }
+      state.write(name);
+    }
+    hir::SymDecl::UserFunction(..) | hir::SymDecl::Local(..) | hir::SymDecl::Struct(..) => {
       let mut name = sym.name.as_str();
       // we want to replace constructor names
       if state.output_cxx {
