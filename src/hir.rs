@@ -2533,6 +2533,8 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
                      vec![Type::new(Double)]);
     declare_function(state, "ceil", None, Type::new(Double),
                      vec![Type::new(Double)]);
+    declare_function(state, "round", None, Type::new(Double),
+                     vec![Type::new(Double)]);
     declare_function(state, "fract", None, Type::new(Float),
                      vec![Type::new(Float)]);
     declare_function(state, "mod", None, Type::new(Vec2),
