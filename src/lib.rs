@@ -183,9 +183,9 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
       write_get_uniform_index(&mut state, uniform_indices);
       write_program_samplers(&mut state, uniform_indices);
       write_bind_attrib_location(&mut state, &inputs);
-      write!(state, "void init_shaders(void *vertex_shader, void *fragment_shader) override;\n");
-      write!(state, "}};\n");
-
+      write!(state, "VertexShaderImpl* get_vertex_shader() override;\n");
+      write!(state, "FragmentShaderImpl* get_fragment_shader() override;\n");
+      write!(state, "}};\n\n");
     }
 
     write!(state, "struct {} : {} {{\n", part_name, shader_impl);
@@ -209,16 +209,15 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     write_bind_textures(&mut state, &pruned_uniforms);
 
     write_abi(&mut state);
-    write!(state, "}};\n");
+    write!(state, "}};\n\n");
+
+    if state.kind == ShaderKind::Vertex {
+        write!(state, "VertexShaderImpl* {}_program::get_vertex_shader() {{ return new {}; }}\n", name, part_name);
+    } else {
+        write!(state, "FragmentShaderImpl* {}_program::get_fragment_shader() {{ return new {}; }}\n", name, part_name);
+    }
 
     define_global_consts(&mut state, &hir, &part_name);
-
-    if state.kind == ShaderKind::Fragment {
-      write!(state, "void {}_program::init_shaders(void *vertex_shader, void *fragment_shader) {{\n", name);
-      write!(state, " reinterpret_cast<{}_vert*>(vertex_shader)->init_shader();\n", name);
-      write!(state, " reinterpret_cast<{}_frag*>(fragment_shader)->init_shader();\n", name);
-      write!(state, "}}\n");
-    }
   } else {
     show_translation_unit(&mut state, &hir);
   }
@@ -2974,6 +2973,8 @@ fn write_abi(state: &mut OutputState) {
         state.write("static void skip(Self *self) {\n");
         state.write(" self->step_interp_inputs();\n");
         state.write("}\n");
+
+        write!(state, "{}_frag() {{\n", state.name);
       }
       ShaderKind::Vertex => {
         state.write("static void run(Self *self, char* flats, char* interps, size_t interp_stride) {\n");
@@ -2981,9 +2982,10 @@ fn write_abi(state: &mut OutputState) {
         state.write(" self->store_flat_outputs(flats);\n");
         state.write(" self->store_interp_outputs(interps, interp_stride);\n");
         state.write("}\n");
+
+        write!(state, "{}_vert() {{\n", state.name);
       }
     }
-    state.write("void init_shader() {\n");
     state.write(" set_uniform_1i_func = (SetUniform1iFunc)&set_uniform_1i;\n");
     state.write(" set_uniform_4fv_func = (SetUniform4fvFunc)&set_uniform_4fv;\n");
     state.write(" set_uniform_matrix4fv_func = (SetUniformMatrix4fvFunc)&set_uniform_matrix4fv;\n");
