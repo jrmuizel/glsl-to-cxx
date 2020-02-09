@@ -1875,6 +1875,25 @@ pub fn show_declaration(state: &mut OutputState, d: &hir::Declaration) {
     hir::Declaration::InitDeclaratorList(ref list) => {
       show_init_declarator_list(state, &list);
       state.write(";\n");
+
+      if state.output_cxx {
+        let base = list.head.name;
+        let base_sym = state.hir.sym(base);
+        if let hir::SymDecl::Local(..) = &base_sym.decl {
+          if symbol_run_class(&base_sym.decl, state.vector_mask) == hir::RunClass::Scalar {
+            let mut texel_fetches = state.texel_fetches.borrow_mut();
+            while let Some(idx) = texel_fetches.iter().position(|&(_, b, _)| b == base) {
+              let (sampler, _, offsets) = texel_fetches.remove(idx);
+              let sampler_sym = state.hir.sym(sampler);
+              show_indent(state);
+              write!(state, "{sampler}_{base}_fetch = texelFetchPtr({sampler}, {base}, {min_x}, {max_x}, {min_y}, {max_y});\n",
+                     sampler = sampler_sym.name, base = base_sym.name,
+                     min_x = offsets.min_x, max_x = offsets.max_x,
+                     min_y = offsets.min_y, max_y = offsets.max_y);
+            }
+          }
+        }
+      }
     }
     hir::Declaration::Precision(ref qual, ref ty) => {
       if !state.output_cxx {
@@ -2211,7 +2230,7 @@ pub fn show_function_definition(state: &mut OutputState, fd: &hir::FunctionDefin
                 write!(state, "ivec4_scalar* {}_{}_fetch = nullptr;\n", sampler_sym.name, base_sym.name);
                 texel_fetches.push((*sampler, *base, offsets.clone()));
             }
-            _ => {}
+            _ => panic!(),
           }
         }
       }
