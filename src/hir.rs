@@ -829,6 +829,27 @@ impl Scope {
     fn new(name: String) -> Self {  Scope { name, names: HashMap::new() }}
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct TexelFetchOffsets {
+    pub min_x: i32,
+    pub max_x: i32,
+    pub min_y: i32,
+    pub max_y: i32,
+}
+
+impl TexelFetchOffsets {
+    fn new(x: i32, y: i32) -> Self {
+        TexelFetchOffsets { min_x: x, max_x: x, min_y: y, max_y: y }
+    }
+
+    fn add_offset(&mut self, x: i32, y: i32) {
+        self.min_x = self.min_x.min(x);
+        self.max_x = self.max_x.max(x);
+        self.min_y = self.min_y.min(y);
+        self.max_y = self.max_y.max(y);
+    }
+}
+
 #[derive(Debug)]
 pub struct State {
     scopes: Vec<Scope>,
@@ -841,6 +862,7 @@ pub struct State {
     modified_globals: RefCell<Vec<SymRef>>,
     pub used_fragcoord: i32,
     pub used_globals: RefCell<Vec<SymRef>>,
+    pub texel_fetches: HashMap<(SymRef, SymRef), TexelFetchOffsets>,
 }
 
 impl State {
@@ -856,6 +878,7 @@ impl State {
             modified_globals: RefCell::new(Vec::new()),
             used_fragcoord: 0,
             used_globals: RefCell::new(Vec::new()),
+            texel_fetches: HashMap::new(),
         }
     }
 
@@ -1306,6 +1329,7 @@ pub struct FunctionDefinition {
     pub prototype: FunctionPrototype,
     pub body: CompoundStatement,
     pub globals: Vec<SymRef>,
+    pub texel_fetches: HashMap<(SymRef, SymRef), TexelFetchOffsets>,
 }
 
 /// Compound statement (with no new scope).
@@ -1825,6 +1849,27 @@ pub fn is_output(expr: &Expr, state: &State) -> Option<SymRef> {
   None
 }
 
+pub fn get_texel_fetch_offset(state: &State, sampler_expr: &Expr, uv_expr: &Expr) -> Option<(SymRef, SymRef, i32, i32)> {
+  if let ExprKind::Variable(ref sampler) = &sampler_expr.kind {
+    if let ExprKind::Binary(BinaryOp::Add, ref lhs, ref rhs) = &uv_expr.kind {
+      if let ExprKind::Variable(ref base) = &lhs.kind {
+        if let ExprKind::FunCall(ref fun, ref args) = &rhs.kind {
+          if let FunIdentifier::Identifier(ref offset) = fun {
+            if state.sym(*offset).name == "ivec2" {
+              if let ExprKind::IntConst(ref x) = &args[0].kind {
+                if let ExprKind::IntConst(ref y) = &args[1].kind {
+                  return Some((*sampler, *base, *x, *y));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  None
+}
+
 fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
     match e {
         syntax::Expr::Variable(i) => {
@@ -1926,9 +1971,19 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                 ExprKind::FunCall(
                     match fun {
                         syntax::FunIdentifier::Identifier(i) => {
-                            let sym = match state.lookup(i.as_str()) {
+                            let name = i.as_str();
+                            if name == "texelFetch" && params.len() >= 2 {
+                                if let Some((sampler, base, x, y)) = get_texel_fetch_offset(state, &params[0], &params[1]) {
+                                    if let Some(offsets) = state.texel_fetches.get_mut(&(sampler, base)) {
+                                        offsets.add_offset(x, y);
+                                    } else {
+                                        state.texel_fetches.insert((sampler, base), TexelFetchOffsets::new(x, y));
+                                    }
+                                }
+                            }
+                            let sym = match state.lookup(name) {
                                 Some(s) => s,
-                                None => panic!("missing symbol {}", i.as_str())
+                                None => panic!("missing symbol {}", name)
                             };
                             match &state.sym(sym).decl {
                                 SymDecl::NativeFunction(fn_ty, _) => {
@@ -2295,7 +2350,7 @@ fn translate_prototype(state: &mut State, cs: &syntax::FunctionPrototype) -> (Fu
         }
         sym
     } else {
-        let pfd = Rc::new(FunctionDefinition { prototype: prototype.clone(), body: CompoundStatement::new(), globals: Vec::new() });
+        let pfd = Rc::new(FunctionDefinition { prototype: prototype.clone(), body: CompoundStatement::new(), globals: Vec::new(), texel_fetches: HashMap::new() });
         state.declare(prototype.name.as_str(), SymDecl::UserFunction(pfd, RunClass::Unknown))
     };
     (prototype, sym)
@@ -2312,13 +2367,16 @@ fn translate_function_definition(state: &mut State, sfd: &syntax::FunctionDefini
     state.push_scope(prototype.name.as_str().into());
     state.in_function = Some(sym);
     state.modified_globals.get_mut().clear();
+    state.texel_fetches.clear();
     let body = translate_compound_statement(state, &sfd.statement);
     let mut globals = Vec::new();
     mem::swap(&mut globals, state.modified_globals.get_mut());
+    let mut texel_fetches = HashMap::new();
+    mem::swap(&mut texel_fetches, &mut state.texel_fetches);
     state.in_function = None;
     state.pop_scope();
 
-    let fd = Rc::new(FunctionDefinition { prototype, body, globals });
+    let fd = Rc::new(FunctionDefinition { prototype, body, globals, texel_fetches });
     state.sym_mut(sym).decl = SymDecl::UserFunction(fd.clone(), RunClass::Unknown);
     fd
 }
