@@ -989,6 +989,22 @@ pub struct FunctionPrototype {
     pub parameters: Vec<FunctionParameterDeclaration>
 }
 
+impl FunctionPrototype {
+    pub fn has_parameter(&self, sym: SymRef) -> bool {
+        for param in &self.parameters {
+            match param {
+                FunctionParameterDeclaration::Named(_, ref d) => {
+                    if d.sym == sym {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+}
+
 /// Function parameter declaration.
 #[derive(Clone, Debug, PartialEq)]
 pub enum FunctionParameterDeclaration {
