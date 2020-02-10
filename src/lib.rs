@@ -651,6 +651,13 @@ fn glsl_primitive_type_name_to_cxx(glsl_name: &str) -> &str {
         .unwrap_or(glsl_name)
 }
 
+fn add_used_global(state: &OutputState, i: &hir::SymRef) {
+  let mut globals = state.used_globals.borrow_mut();
+  if !globals.contains(i) {
+    globals.push(*i);
+  }
+}
+
 pub fn show_sym(state: &OutputState, i: &hir::SymRef) {
   let sym = state.hir.sym(*i);
   match &sym.decl {
@@ -663,12 +670,8 @@ pub fn show_sym(state: &OutputState, i: &hir::SymRef) {
     }
     hir::SymDecl::Global(..) => {
       if state.output_cxx {
-        let mut globals = state.used_globals.borrow_mut();
-        if !globals.contains(i) {
-          globals.push(*i);
-        }
+        add_used_global(state, i);
       }
-
       let mut name = sym.name.as_str();
       if state.output_cxx {
         name = glsl_primitive_type_name_to_cxx(name);
@@ -1532,6 +1535,10 @@ pub fn show_hir_expr_inner(state: &OutputState, expr: &hir::Expr, top_level: boo
                         let base_sym = state.hir.sym(base);
                         if symbol_run_class(&base_sym.decl, state.vector_mask) == hir::RunClass::Scalar {
                             let sampler_sym = state.hir.sym(sampler);
+                            add_used_global(state, &sampler);
+                            if let hir::SymDecl::Global(..) = &base_sym.decl {
+                                add_used_global(state, &base);
+                            }
                             if y != 0 {
                                 write!(state, "{}_{}_fetch[{}+{}*{}->stride]", sampler_sym.name, base_sym.name, x, y, sampler_sym.name);
                             } else {
@@ -2223,9 +2230,11 @@ pub fn show_function_definition(state: &mut OutputState, fd: &hir::FunctionDefin
     for ((sampler, base), offsets) in fd.texel_fetches.iter() {
       let base_sym = state.hir.sym(*base);
       if symbol_run_class(&base_sym.decl, vector_mask) == hir::RunClass::Scalar {
+        add_used_global(state, sampler);
         let sampler_sym = state.hir.sym(*sampler);
         match &base_sym.decl {
           hir::SymDecl::Global(..) => {
+            add_used_global(state, base);
             define_texel_fetch_ptr(state, &base_sym, &sampler_sym, &offsets);
           }
           hir::SymDecl::Local(..) => {
