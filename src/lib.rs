@@ -206,6 +206,11 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
       write_store_outputs(&mut state, &outputs);
     } else {
       write_read_inputs(&mut state, &pruned_inputs);
+      if !state.uses_discard && pruned_inputs.iter().all(|i| symbol_run_class(&state.hir.sym(*i).decl, state.vector_mask) == hir::RunClass::Scalar) {
+        write!(state, "static bool use_varying(Self*) {{ return false; }}\n");
+      } else {
+        write!(state, "static bool use_varying(Self*) {{ return true; }}\n");
+      }
     }
     write_bind_textures(&mut state, &pruned_uniforms);
 
@@ -3087,6 +3092,7 @@ fn write_abi(state: &mut OutputState) {
         state.write(" run_func = (RunFunc)&run;\n");
         state.write(" skip_func = (SkipFunc)&skip;\n");
         state.write(" use_discard_func = (UseDiscardFunc)&use_discard;\n");
+        state.write(" use_varying_func = (UseVaryingFunc)&use_varying;\n");
       }
       ShaderKind::Vertex => {
         state.write(" init_batch_func = (InitBatchFunc)&bind_textures;\n");
