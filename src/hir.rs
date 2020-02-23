@@ -2116,7 +2116,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
             Expr { kind: ExprKind::Ternary(cond, lhs, rhs), ty }
         }
         syntax::Expr::Dot(e, i) => {
-            let e = Box::new(translate_expression(state, e));
+            let mut e = Box::new(translate_expression(state, e));
             let ty = e.ty.clone();
             let ivec = is_ivec(&ty);
             if is_vector(&ty) {
@@ -2128,12 +2128,19 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                     _ => panic!(),
                 });
 
-                let sel = SwizzleSelector::parse(i.as_str());
+                let mut sel = SwizzleSelector::parse(i.as_str());
 
-                if let ExprKind::Variable(sym) = &e.kind {
+                if let ExprKind::Variable(ref mut sym) = &mut e.kind {
                     if state.sym(*sym).name == "gl_FragCoord" {
                         for c in &sel.components {
                             state.used_fragcoord |= 1 << c;
+                        }
+                        *sym = state.lookup("gl_FragCoordXY").unwrap();
+                        for c in &mut sel.components {
+                            if *c >= 2 {
+                                *c -= 2;
+                                *sym = state.lookup("gl_FragCoordZW").unwrap();
+                            }
                         }
                     }
                 }
@@ -2641,7 +2648,9 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
                      vec![Type::new(Mat3)]);
     declare_function(state, "normalize", None, Type::new(Vec2),
                      vec![Type::new(Vec2)]);
-    state.declare("gl_FragCoord", SymDecl::Global(StorageClass::Out, None, Type::new(Vec4), RunClass::Vector));
+    state.declare("gl_FragCoord", SymDecl::Global(StorageClass::In, None, Type::new(Vec4), RunClass::Vector));
+    state.declare("gl_FragCoordXY", SymDecl::Global(StorageClass::In, None, Type::new(Vec2), RunClass::Vector));
+    state.declare("gl_FragCoordZW", SymDecl::Global(StorageClass::In, None, Type::new(Vec2), RunClass::Scalar));
     state.declare("gl_FragColor", SymDecl::Global(StorageClass::Out, None, Type::new(Vec4), RunClass::Vector));
     state.declare("gl_Position", SymDecl::Global(StorageClass::Out, None, Type::new(Vec4), RunClass::Vector));
 
