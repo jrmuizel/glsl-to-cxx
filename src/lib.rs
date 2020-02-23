@@ -3117,8 +3117,9 @@ fn write_abi(state: &mut OutputState) {
         state.write(" self->main();\n");
         state.write(" self->step_interp_inputs();\n");
         state.write("}\n");
-        state.write("static void skip(Self* self) {\n");
+        state.write("static void skip(Self* self, int chunks) {\n");
         state.write(" self->step_interp_inputs();\n");
+        state.write(" while (--chunks > 0) self->step_interp_inputs();\n");
         state.write("}\n");
         if state.has_draw_span_RGBA8 {
             state.write("static void draw_span_RGBA8(Self* self, uint32_t* buf, int len) {\n");
