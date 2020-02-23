@@ -48,6 +48,8 @@ pub fn translate(args: &mut dyn Iterator<Item = String>) -> String {
 
   let fs_name = std::path::Path::new(&frag_file).file_stem().unwrap().to_string_lossy().trim_end_matches(".frag").replace('.', "_");
 
+  let frag_include = args.next();
+
   let (vs_state, vs_hir, vs_is_frag) = parse_shader(vertex_file);
   let (fs_state, fs_hir, fs_is_frag) = parse_shader(frag_file);
 
@@ -58,9 +60,9 @@ pub fn translate(args: &mut dyn Iterator<Item = String>) -> String {
 
   assert_eq!(fs_name, vs_name);
 
-  let mut result = translate_shader(vs_name, vs_state, vs_hir, vs_is_frag, &uniform_indices);
+  let mut result = translate_shader(vs_name, vs_state, vs_hir, vs_is_frag, &uniform_indices, None);
   result += "\n";
-  result += &translate_shader(fs_name, fs_state, fs_hir, fs_is_frag, &uniform_indices);
+  result += &translate_shader(fs_name, fs_state, fs_hir, fs_is_frag, &uniform_indices, frag_include);
   result
 }
 
@@ -84,7 +86,7 @@ fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
   (state, hir, is_frag)
 }
 
-fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool, uniform_indices: &UniformIndices) -> String {
+fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool, uniform_indices: &UniformIndices, include_file: Option<String>) -> String {
   use std::io::Write;
 
   //println!("{:#?}", state);
@@ -142,6 +144,8 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     deps: RefCell::new(Vec::new()),
     vector_mask: 0,
     uses_discard: false,
+    has_draw_span_RGBA8: false,
+    has_draw_span_R8: false,
     used_globals: RefCell::new(Vec::new()),
     texel_fetches: RefCell::new(Vec::new()),
   };
@@ -194,6 +198,10 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
 
     show_translation_unit(&mut state, &hir);
 
+    if let Some(include_file) = include_file {
+        write_include_file(&mut state, include_file);
+    }
+
     write_set_uniform_1i(&mut state, &uniforms, uniform_indices);
     write_set_uniform_4fv(&mut state, &uniforms, uniform_indices);
     write_set_uniform_matrix4fv(&mut state, &uniforms, uniform_indices);
@@ -206,11 +214,6 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
       write_store_outputs(&mut state, &outputs);
     } else {
       write_read_inputs(&mut state, &pruned_inputs);
-      if !state.uses_discard && pruned_inputs.iter().all(|i| symbol_run_class(&state.hir.sym(*i).decl, state.vector_mask) == hir::RunClass::Scalar) {
-        write!(state, "static bool use_varying(Self*) {{ return false; }}\n");
-      } else {
-        write!(state, "static bool use_varying(Self*) {{ return true; }}\n");
-      }
     }
     write_bind_textures(&mut state, &pruned_uniforms);
 
@@ -577,6 +580,53 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef]) {
     }
   }
   write!(state, "}}\n");
+
+  if state.has_draw_span_RGBA8 || state.has_draw_span_R8 {
+    write!(state, "ALWAYS_INLINE void step_interp_inputs(int chunks) {{\n");
+    if (state.hir.used_fragcoord & 1) != 0 {
+      write!(state, "  step_fragcoord(chunks);\n");
+    }
+    for i in inputs {
+      let sym = state.hir.sym(*i);
+      match &sym.decl {
+        hir::SymDecl::Global(_, _, _, run_class) => {
+          if *run_class != hir::RunClass::Scalar {
+            let name = sym.name.as_str();
+            write!(state, "  {} += interp_step.{} * chunks;\n", name, name);
+          }
+        }
+        _ => panic!()
+      }
+    }
+    write!(state, "}}\n");
+  }
+}
+
+fn write_include_file(state: &mut OutputState, include_file: String) {
+  let include_contents = std::fs::read_to_string(&include_file).unwrap();
+
+  let mut offset = 0;
+  while offset < include_contents.len() {
+    let s = &include_contents[offset ..];
+    if let Some(start_proto) = s.find("draw_span") {
+      let s = &s[start_proto ..];
+      if let Some(end_proto) = s.find(')') {
+        let proto = &s[.. end_proto];
+        if proto.contains("uint32_t") {
+          state.has_draw_span_RGBA8 = true;
+        } else if proto.contains("uint8_t") {
+          state.has_draw_span_R8 = true;
+        }
+        offset += start_proto + end_proto;
+        continue;
+      }
+    }
+    break;
+  }
+
+  write!(state, "\n// begin include\n\n");
+  state.write(&include_contents);
+  write!(state, "\n// end include\n\n");
 }
 
 pub struct OutputState {
@@ -599,6 +649,8 @@ pub struct OutputState {
   deps: RefCell<Vec<(hir::SymRef, u32)>>,
   vector_mask: u32,
   uses_discard: bool,
+  has_draw_span_RGBA8: bool,
+  has_draw_span_R8: bool,
   used_globals: RefCell<Vec<hir::SymRef>>,
   texel_fetches: RefCell<Vec<(hir::SymRef, hir::SymRef, hir::TexelFetchOffsets)>>,
 }
@@ -3065,14 +3117,28 @@ fn write_abi(state: &mut OutputState) {
         state.write(" self->main();\n");
         state.write(" self->step_interp_inputs();\n");
         state.write("}\n");
-        state.write("static void skip(Self *self) {\n");
+        state.write("static void skip(Self* self) {\n");
         state.write(" self->step_interp_inputs();\n");
         state.write("}\n");
+        if state.has_draw_span_RGBA8 {
+            state.write("static void draw_span_RGBA8(Self* self, uint32_t* buf, int len) {\n");
+            state.write("  int drawn = self->draw_span(buf, len);\n");
+            state.write("  if (drawn) self->step_interp_inputs(drawn >> 2);\n");
+            state.write("  for (; drawn < len; drawn += 4) run(self);\n");
+            state.write("}\n");
+        }
+        if state.has_draw_span_R8 {
+            state.write("static void draw_span_R8(Self* self, uint8_t* buf, int len) {\n");
+            state.write("  int drawn = self->draw_span(buf, len);\n");
+            state.write("  if (drawn) self->step_interp_inputs(drawn >> 2);\n");
+            state.write("  for (; drawn < len; drawn += 4) run(self);\n");
+            state.write("}\n");
+        }
 
         write!(state, "{}_frag() {{\n", state.name);
       }
       ShaderKind::Vertex => {
-        state.write("static void run(Self *self, char* flats, char* interps, size_t interp_stride) {\n");
+        state.write("static void run(Self* self, char* flats, char* interps, size_t interp_stride) {\n");
         state.write(" self->main();\n");
         state.write(" self->store_flat_outputs(flats);\n");
         state.write(" self->store_interp_outputs(interps, interp_stride);\n");
@@ -3092,7 +3158,12 @@ fn write_abi(state: &mut OutputState) {
         state.write(" run_func = (RunFunc)&run;\n");
         state.write(" skip_func = (SkipFunc)&skip;\n");
         state.write(" use_discard_func = (UseDiscardFunc)&use_discard;\n");
-        state.write(" use_varying_func = (UseVaryingFunc)&use_varying;\n");
+        if state.has_draw_span_RGBA8 {
+            state.write(" draw_span_RGBA8_func = (DrawSpanRGBA8Func)&draw_span_RGBA8;\n");
+        }
+        if state.has_draw_span_R8 {
+            state.write(" draw_span_R8_func = (DrawSpanR8Func)&draw_span_R8;\n");
+        }
       }
       ShaderKind::Vertex => {
         state.write(" init_batch_func = (InitBatchFunc)&bind_textures;\n");
