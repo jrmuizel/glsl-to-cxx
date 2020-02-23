@@ -3124,14 +3124,14 @@ fn write_abi(state: &mut OutputState) {
             state.write("static void draw_span_RGBA8(Self* self, uint32_t* buf, int len) {\n");
             state.write("  int drawn = self->draw_span(buf, len);\n");
             state.write("  if (drawn) self->step_interp_inputs(drawn >> 2);\n");
-            state.write("  for (; drawn < len; drawn += 4) run(self);\n");
+            state.write("  for (buf += drawn; drawn < len; drawn += 4, buf += 4) { run(self); commit_span(buf, pack_span(buf)); }\n");
             state.write("}\n");
         }
         if state.has_draw_span_R8 {
             state.write("static void draw_span_R8(Self* self, uint8_t* buf, int len) {\n");
             state.write("  int drawn = self->draw_span(buf, len);\n");
             state.write("  if (drawn) self->step_interp_inputs(drawn >> 2);\n");
-            state.write("  for (; drawn < len; drawn += 4) run(self);\n");
+            state.write("  for (buf += drawn; drawn < len; drawn += 4, buf += 4) { run(self); commit_span(buf, pack_span(buf)); }\n");
             state.write("}\n");
         }
 
