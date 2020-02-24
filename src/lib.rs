@@ -624,9 +624,8 @@ fn write_include_file(state: &mut OutputState, include_file: String) {
     break;
   }
 
-  write!(state, "\n// begin include\n\n");
-  state.write(&include_contents);
-  write!(state, "\n// end include\n\n");
+  let include_name = std::path::Path::new(&include_file).file_name().unwrap().to_string_lossy();
+  write!(state, "\n#include \"{}\"\n\n", include_name);
 }
 
 pub struct OutputState {
