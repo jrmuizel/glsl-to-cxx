@@ -1825,7 +1825,9 @@ fn promoted_type(lhs: &Type, rhs: &Type) -> Type {
             match (&lhs.precision, &rhs.precision) {
                 (Some(PrecisionQualifier::High), _) => lhs.clone(),
                 (_, Some(PrecisionQualifier::High)) => rhs.clone(),
-                _ => panic!("precision mismatch")
+                (None, _) => lhs.clone(),
+                (_, None) => rhs.clone(),
+                _ => panic!("precision mismatch {:?} {:?}", lhs.precision, rhs.precision)
             }
         } else {
             panic!("array size mismatch")
