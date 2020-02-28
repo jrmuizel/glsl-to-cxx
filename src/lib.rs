@@ -144,8 +144,8 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
     deps: RefCell::new(Vec::new()),
     vector_mask: 0,
     uses_discard: false,
-    has_draw_span_RGBA8: false,
-    has_draw_span_R8: false,
+    has_draw_span_rgba8: false,
+    has_draw_span_r8: false,
     used_globals: RefCell::new(Vec::new()),
     texel_fetches: RefCell::new(Vec::new()),
   };
@@ -581,7 +581,7 @@ fn write_read_inputs(state: &mut OutputState, inputs: &[hir::SymRef]) {
   }
   write!(state, "}}\n");
 
-  if state.has_draw_span_RGBA8 || state.has_draw_span_R8 {
+  if state.has_draw_span_rgba8 || state.has_draw_span_r8 {
     write!(state, "ALWAYS_INLINE void step_interp_inputs(int chunks) {{\n");
     if (state.hir.used_fragcoord & 1) != 0 {
       write!(state, "  step_fragcoord(chunks);\n");
@@ -613,9 +613,9 @@ fn write_include_file(state: &mut OutputState, include_file: String) {
       if let Some(end_proto) = s.find(')') {
         let proto = &s[.. end_proto];
         if proto.contains("uint32_t") {
-          state.has_draw_span_RGBA8 = true;
+          state.has_draw_span_rgba8 = true;
         } else if proto.contains("uint8_t") {
-          state.has_draw_span_R8 = true;
+          state.has_draw_span_r8 = true;
         }
         offset += start_proto + end_proto;
         continue;
@@ -648,8 +648,8 @@ pub struct OutputState {
   deps: RefCell<Vec<(hir::SymRef, u32)>>,
   vector_mask: u32,
   uses_discard: bool,
-  has_draw_span_RGBA8: bool,
-  has_draw_span_R8: bool,
+  has_draw_span_rgba8: bool,
+  has_draw_span_r8: bool,
   used_globals: RefCell<Vec<hir::SymRef>>,
   texel_fetches: RefCell<Vec<(hir::SymRef, hir::SymRef, hir::TexelFetchOffsets)>>,
 }
@@ -3126,10 +3126,10 @@ fn write_abi(state: &mut OutputState) {
         state.write(" self->step_interp_inputs();\n");
         state.write(" while (--chunks > 0) self->step_interp_inputs();\n");
         state.write("}\n");
-        if state.has_draw_span_RGBA8 {
+        if state.has_draw_span_rgba8 {
             state.write("static void draw_span_RGBA8(Self* self, uint32_t* buf, int len) { dispatch_draw_span(self, buf, len); }\n");
         }
-        if state.has_draw_span_R8 {
+        if state.has_draw_span_r8 {
             state.write("static void draw_span_R8(Self* self, uint8_t* buf, int len) { dispatch_draw_span(self, buf, len); }\n");
         }
 
@@ -3156,10 +3156,10 @@ fn write_abi(state: &mut OutputState) {
         state.write(" run_func = (RunFunc)&run;\n");
         state.write(" skip_func = (SkipFunc)&skip;\n");
         state.write(" use_discard_func = (UseDiscardFunc)&use_discard;\n");
-        if state.has_draw_span_RGBA8 {
+        if state.has_draw_span_rgba8 {
             state.write(" draw_span_RGBA8_func = (DrawSpanRGBA8Func)&draw_span_RGBA8;\n");
         }
-        if state.has_draw_span_R8 {
+        if state.has_draw_span_r8 {
             state.write(" draw_span_R8_func = (DrawSpanR8Func)&draw_span_R8;\n");
         }
       }
