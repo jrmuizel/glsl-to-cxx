@@ -67,8 +67,6 @@ pub fn translate(args: &mut dyn Iterator<Item = String>) -> String {
 }
 
 fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
-  use std::io::Write;
-
   let mut contents = String::new();
   let is_frag = file.contains("frag");
   std::fs::File::open(&file).unwrap().read_to_string(&mut contents).unwrap();
@@ -435,11 +433,11 @@ fn scalar_type_name(state: &OutputState, ty: &Type) -> String {
   }
 }
 
-fn type_name(state: &OutputState, ty: &Type) -> String {
-  let buffer = state.push_buffer();
-  show_type(state, ty);
-  state.pop_buffer(buffer)
-}
+//fn type_name(state: &OutputState, ty: &Type) -> String {
+//  let buffer = state.push_buffer();
+//  show_type(state, ty);
+//  state.pop_buffer(buffer)
+//}
 
 fn write_load_attribs(state: &mut OutputState, attribs: &[hir::SymRef]) {
   write!(state, "static void load_attribs(Self *self, {}_program *prog, VertexAttrib *attribs, unsigned short *indices, int start, int instance, int count) {{\n", state.name);
@@ -690,7 +688,7 @@ impl OutputState {
   }
 
   fn write_fmt(&self, args: Arguments) {
-    self.buffer.borrow_mut().write_fmt(args);
+    let _ = self.buffer.borrow_mut().write_fmt(args);
   }
 }
 
@@ -1364,28 +1362,6 @@ fn expr_run_class(state: &OutputState, expr: &hir::Expr) -> hir::RunClass {
     hir::ExprKind::Cond(_, ref e) => expr_run_class(state, e),
     hir::ExprKind::CondMask => hir::RunClass::Vector,
   }
-}
-
-fn constant_across_all_lanes(e: &hir::Expr, state: &OutputState) -> bool {
-  /*
-  match &e.kind {
-    hir::ExprKind::Variable(i) => {
-      match state.hir.sym(*i).decl {
-        hir::SymDecl::Variable(storage,..) => {
-          match storage {
-            hir::StorageClass::Out => return true,
-            _ => {}
-          }
-        }
-        _ => { panic!("should be variable") }
-      }
-    }
-    hir::ExprKind::SwizzleSelector(e, ..) => {
-      return constant_across_all_lanes(e, state);
-    }
-    _ => {}
-  };*/
-  false
 }
 
 pub fn show_hir_expr(state: &OutputState, expr: &hir::Expr) {
