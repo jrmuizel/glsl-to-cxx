@@ -2632,9 +2632,9 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
     declare_function(state, "texelFetch", None, Type::new(IVec4),
                      vec![Type::new(ISampler2D), Type::new(IVec2), Type::new(Int)]);
     declare_function(state, "texelFetchOffset", None, Type::new(Vec4),
-                     vec![Type::new(Sampler2D), Type::new(IVec2), Type::new(Int)]);
+                     vec![Type::new(Sampler2D), Type::new(IVec2), Type::new(Int), Type::new(IVec2)]);
     declare_function(state, "texelFetchOffset", None, Type::new(IVec4),
-                     vec![Type::new(ISampler2D), Type::new(IVec2), Type::new(Int)]);
+                     vec![Type::new(ISampler2D), Type::new(IVec2), Type::new(Int), Type::new(IVec2)]);
     declare_function(state, "texture", None, Type::new(Vec4),
                      vec![Type::new(Sampler2D), Type::new(Vec3)]);
     declare_function(state, "texture", None, Type::new(Vec4),
