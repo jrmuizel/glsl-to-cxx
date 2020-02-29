@@ -1867,11 +1867,11 @@ pub fn is_output(expr: &Expr, state: &State) -> Option<SymRef> {
   None
 }
 
-pub fn get_texel_fetch_offset(state: &State, sampler_expr: &Expr, uv_expr: &Expr) -> Option<(SymRef, SymRef, i32, i32)> {
+pub fn get_texel_fetch_offset(state: &State, sampler_expr: &Expr, uv_expr: &Expr, offset_expr: &Expr) -> Option<(SymRef, SymRef, i32, i32)> {
   if let ExprKind::Variable(ref sampler) = &sampler_expr.kind {
-    if let ExprKind::Binary(BinaryOp::Add, ref lhs, ref rhs) = &uv_expr.kind {
-      if let ExprKind::Variable(ref base) = &lhs.kind {
-        if let ExprKind::FunCall(ref fun, ref args) = &rhs.kind {
+    //if let ExprKind::Binary(BinaryOp::Add, ref lhs, ref rhs) = &uv_expr.kind {
+      if let ExprKind::Variable(ref base) = &uv_expr.kind {
+        if let ExprKind::FunCall(ref fun, ref args) = &offset_expr.kind {
           if let FunIdentifier::Identifier(ref offset) = fun {
             if state.sym(*offset).name == "ivec2" {
               if let ExprKind::IntConst(ref x) = &args[0].kind {
@@ -1883,7 +1883,7 @@ pub fn get_texel_fetch_offset(state: &State, sampler_expr: &Expr, uv_expr: &Expr
           }
         }
       }
-    }
+    //}
   }
   None
 }
@@ -1990,8 +1990,8 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                     match fun {
                         syntax::FunIdentifier::Identifier(i) => {
                             let name = i.as_str();
-                            if name == "texelFetch" && params.len() >= 2 {
-                                if let Some((sampler, base, x, y)) = get_texel_fetch_offset(state, &params[0], &params[1]) {
+                            if name == "texelFetchOffset" && params.len() >= 4 {
+                                if let Some((sampler, base, x, y)) = get_texel_fetch_offset(state, &params[0], &params[1], &params[3]) {
                                     if let Some(offsets) = state.texel_fetches.get_mut(&(sampler, base)) {
                                         offsets.add_offset(x, y);
                                     } else {
@@ -2630,6 +2630,10 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
     declare_function(state, "texelFetch", None, Type::new(Vec4),
                      vec![Type::new(Sampler2DArray), Type::new(IVec3), Type::new(Int)]);
     declare_function(state, "texelFetch", None, Type::new(IVec4),
+                     vec![Type::new(ISampler2D), Type::new(IVec2), Type::new(Int)]);
+    declare_function(state, "texelFetchOffset", None, Type::new(Vec4),
+                     vec![Type::new(Sampler2D), Type::new(IVec2), Type::new(Int)]);
+    declare_function(state, "texelFetchOffset", None, Type::new(IVec4),
                      vec![Type::new(ISampler2D), Type::new(IVec2), Type::new(Int)]);
     declare_function(state, "texture", None, Type::new(Vec4),
                      vec![Type::new(Sampler2D), Type::new(Vec3)]);

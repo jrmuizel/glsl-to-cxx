@@ -1568,8 +1568,8 @@ pub fn show_hir_expr_inner(state: &OutputState, expr: &hir::Expr, top_level: boo
             let sym = state.hir.sym(*name);
             match &sym.decl {
             hir::SymDecl::NativeFunction(..) => {
-                if sym.name == "texelFetch" && args.len() >= 2 {
-                    if let Some((sampler, base, x, y)) = hir::get_texel_fetch_offset(&state.hir, &args[0], &args[1]) {
+                if sym.name == "texelFetchOffset" && args.len() >= 4 {
+                    if let Some((sampler, base, x, y)) = hir::get_texel_fetch_offset(&state.hir, &args[0], &args[1], &args[3]) {
                         let base_sym = state.hir.sym(base);
                         if symbol_run_class(&base_sym.decl, state.vector_mask) == hir::RunClass::Scalar {
                             let sampler_sym = state.hir.sym(sampler);
