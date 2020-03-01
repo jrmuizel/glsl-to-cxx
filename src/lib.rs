@@ -42,11 +42,11 @@ pub fn translate(args: &mut dyn Iterator<Item = String>) -> String {
   let _cmd_name = args.next();
   let vertex_file = args.next().unwrap();
 
-  let vs_name = std::path::Path::new(&vertex_file).file_stem().unwrap().to_string_lossy().trim_end_matches(".vert").replace('.', "_");
+  let vs_name = std::path::Path::new(&vertex_file).file_stem().unwrap().to_string_lossy().to_string();
 
   let frag_file = args.next().unwrap();
 
-  let fs_name = std::path::Path::new(&frag_file).file_stem().unwrap().to_string_lossy().trim_end_matches(".frag").replace('.', "_");
+  let fs_name = std::path::Path::new(&frag_file).file_stem().unwrap().to_string_lossy().to_string();
 
   let frag_include = args.next();
 
@@ -180,12 +180,12 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
 
     if state.kind == ShaderKind::Vertex {
       write!(state, "struct {}_program : ProgramImpl {{\n", name);
-      write!(state, "const char *get_name() const override {{ return \"{}\"; }}\n", name);
       write_get_uniform_index(&mut state, uniform_indices);
       write_program_samplers(&mut state, uniform_indices);
       write_bind_attrib_location(&mut state, &inputs);
       write!(state, "VertexShaderImpl* get_vertex_shader() override;\n");
       write!(state, "FragmentShaderImpl* get_fragment_shader() override;\n");
+      write!(state, "static ProgramImpl* loader() {{ return new {}_program; }}\n", name);
       write!(state, "}};\n\n");
     }
 
@@ -387,24 +387,23 @@ fn write_bind_attrib_location(state: &mut OutputState, attribs: &[hir::SymRef]) 
   write!(state, "struct AttribLocations {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
-    match &sym.decl {
-      hir::SymDecl::Global(_, _, _ty, _) => {
-        write!(state, " int {} = NULL_ATTRIB;\n", sym.name.as_str());
-      }
-      _ => panic!()
-    }
+    write!(state, " int {} = NULL_ATTRIB;\n", sym.name.as_str());
   }
   write!(state, "}} attrib_locations;\n");
-  write!(state, "void bind_attrib(const char *name, int index) override {{\n");
+
+  write!(state, "void bind_attrib(const char* name, int index) override {{\n");
   for i in attribs {
     let sym = state.hir.sym(*i);
-    match &sym.decl {
-      hir::SymDecl::Global(_, _, _ty, _) => {
-        write!(state, " if (strcmp(\"{}\", name) == 0) {{ attrib_locations.{} = index; return; }}\n", sym.name.as_str(), sym.name.as_str());
-      }
-      _ => panic!()
-    }
+    write!(state, " if (strcmp(\"{0}\", name) == 0) {{ attrib_locations.{0} = index; return; }}\n", sym.name.as_str());
   }
+  write!(state, "}}\n");
+
+  write!(state, "int get_attrib(const char* name) const override {{\n");
+  for i in attribs {
+    let sym = state.hir.sym(*i);
+    write!(state, " if (strcmp(\"{0}\", name) == 0) {{ return attrib_locations.{0} != NULL_ATTRIB ? attrib_locations.{0} : -1; }}\n", sym.name.as_str());
+  }
+  write!(state, "  return -1;\n");
   write!(state, "}}\n");
 }
 
