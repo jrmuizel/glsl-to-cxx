@@ -427,7 +427,7 @@ fn scalar_type_name(state: &OutputState, ty: &Type) -> String {
     show_hir_expr(state, size);
     let size_string = state.pop_buffer(buffer);
 
-    format!("std::array<{}, {}>", kind_name, size_string)
+    format!("Array<{}, {}>", kind_name, size_string)
   } else {
     kind_name
   }
@@ -830,7 +830,7 @@ pub fn write_convert_constructor(state: &OutputState, name: &str, s: &hir::Struc
   state.write("{\n");
   for hir::StructField { ty, name } in &s.fields {
     if ty.array_sizes.is_some() {
-      let _ = write!(state, "convert_array(this->{}, {});\n", name, name);
+      let _ = write!(state, "this->{}.convert({});\n", name, name);
     }
   }
   state.write("}\n");
@@ -851,7 +851,7 @@ pub fn write_convert_constructor(state: &OutputState, name: &str, s: &hir::Struc
   state.write("{\n");
   for hir::StructField { ty, name } in &s.fields {
     if ty.array_sizes.is_some() {
-      let _ = write!(state, "convert_array({}, s.{});\n", name, name);
+      let _ = write!(state, "{}.convert(s.{});\n", name, name);
     }
   }
   state.write("}\n");
@@ -1016,7 +1016,7 @@ pub fn show_type(state: &OutputState, t: &Type) {
 
   if state.output_cxx {
     if let Some(ref array) = t.array_sizes {
-      state.write("std::array<");
+      state.write("Array<");
       show_type_kind(state, &t.kind);
       let size = match &array.sizes[..] {
         [size] => size,
@@ -1643,7 +1643,7 @@ pub fn show_hir_expr_inner(state: &OutputState, expr: &hir::Expr, top_level: boo
       }
 
       if array_constructor {
-        state.write("{");
+        state.write("{{");
       } else {
         state.write("(");
       }
@@ -1679,7 +1679,7 @@ pub fn show_hir_expr_inner(state: &OutputState, expr: &hir::Expr, top_level: boo
       }
 
       if array_constructor {
-        state.write("}");
+        state.write("}}");
       } else {
         state.write(")");
       }
