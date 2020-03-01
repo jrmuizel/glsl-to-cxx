@@ -85,8 +85,6 @@ fn parse_shader(file: String) -> (hir::State, hir::TranslationUnit, bool) {
 }
 
 fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUnit, is_frag: bool, uniform_indices: &UniformIndices, include_file: Option<String>) -> String {
-  use std::io::Write;
-
   //println!("{:#?}", state);
 
   hir::infer_run_class(&mut state, &hir);
@@ -149,7 +147,7 @@ fn translate_shader(name: String, mut state: hir::State, hir: hir::TranslationUn
   };
 
   show_translation_unit(&mut state, &hir);
-  let output_glsl = state.finish_output();
+  let _output_glsl = state.finish_output();
 
   state.should_indent = true;
   state.output_cxx = true;
@@ -297,7 +295,7 @@ fn write_bind_textures(state: &mut OutputState, uniforms: &[hir::SymRef]) {
   for i in uniforms {
     let sym = state.hir.sym(*i);
     match &sym.decl {
-      hir::SymDecl::Global(hir::StorageClass::Sampler(format), _, ty, _) => {
+      hir::SymDecl::Global(hir::StorageClass::Sampler(_format), _, ty, _) => {
         let name = sym.name.as_str();
         match ty.kind {
           hir::TypeKind::Sampler2D => write!(state, " self->{} = lookup_sampler(&prog->samplers.{}_impl, prog->samplers.{}_slot);\n", name, name, name),
@@ -390,7 +388,7 @@ fn write_bind_attrib_location(state: &mut OutputState, attribs: &[hir::SymRef]) 
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
-      hir::SymDecl::Global(_, _, ty, _) => {
+      hir::SymDecl::Global(_, _, _ty, _) => {
         write!(state, " int {} = NULL_ATTRIB;\n", sym.name.as_str());
       }
       _ => panic!()
@@ -401,7 +399,7 @@ fn write_bind_attrib_location(state: &mut OutputState, attribs: &[hir::SymRef]) 
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
-      hir::SymDecl::Global(_, _, ty, _) => {
+      hir::SymDecl::Global(_, _, _ty, _) => {
         write!(state, " if (strcmp(\"{}\", name) == 0) {{ attrib_locations.{} = index; return; }}\n", sym.name.as_str(), sym.name.as_str());
       }
       _ => panic!()
@@ -444,7 +442,7 @@ fn write_load_attribs(state: &mut OutputState, attribs: &[hir::SymRef]) {
   for i in attribs {
     let sym = state.hir.sym(*i);
     match &sym.decl {
-      hir::SymDecl::Global(_, interpolation, ty, run_class) => {
+      hir::SymDecl::Global(_, _interpolation, _ty, run_class) => {
         let name = sym.name.as_str();
         let func = if *run_class == hir::RunClass::Scalar { "load_flat_attrib" } else { "load_attrib" };
         write!(state, " {}(self->{}, attribs[prog->attrib_locations.{}], indices, start, instance, count);\n", func, name, name);
@@ -693,7 +691,7 @@ impl OutputState {
 }
 
 use glsl::syntax;
-use crate::hir::{SwitchStatement, SwizzleSelector, SelectionStatement, Statement};
+use crate::hir::{SwizzleSelector, Statement};
 
 pub fn show_identifier(state: &OutputState, i: &syntax::Identifier) {
   state.write(&i.0);
@@ -740,7 +738,6 @@ pub fn show_sym(state: &OutputState, i: &hir::SymRef) {
       }
       state.write(name);
     }
-    _ => panic!()
   }
 }
 
@@ -954,7 +951,7 @@ pub fn show_type_specifier_non_array(state: &mut OutputState, t: &syntax::TypeSp
         show_type_kind(state, &kind);
     } else {
         match t {
-            syntax::TypeSpecifierNonArray::Struct(ref s) => panic!(),//show_struct_non_declaration(state, s),
+            syntax::TypeSpecifierNonArray::Struct(ref _s) => panic!(),//show_struct_non_declaration(state, s),
             syntax::TypeSpecifierNonArray::TypeName(ref tn) => show_type_name(state, tn),
             _ => unreachable!(),
         }
@@ -1067,9 +1064,10 @@ pub fn show_type(state: &OutputState, t: &Type) {
   state.write("}");
 }*/
 
-pub fn show_struct(state: &OutputState, s: &syntax::StructSpecifier) {
-  panic!();//show_struct_non_declaration(state, s);
-  state.write(";\n");
+pub fn show_struct(_state: &OutputState, _s: &syntax::StructSpecifier) {
+  panic!();
+  //show_struct_non_declaration(state, s);
+  //state.write(";\n");
 }
 
 pub fn show_struct_field(state: &OutputState, field: &hir::StructField) {
@@ -1145,9 +1143,9 @@ pub fn show_type_qualifier(state: &OutputState, q: &hir::TypeQualifier) {
 pub fn show_type_qualifier_spec(state: &OutputState, q: &hir::TypeQualifierSpec) {
   match *q {
     hir::TypeQualifierSpec::Layout(ref l) => show_layout_qualifier(state, &l),
-    hir::TypeQualifierSpec::Parameter(ref p) => panic!(),
-    hir::TypeQualifierSpec::Memory(ref m) => panic!(),
-    hir::TypeQualifierSpec::Invariant => { state.write("invariant"); },
+    hir::TypeQualifierSpec::Parameter(ref _p) => panic!(),
+    hir::TypeQualifierSpec::Memory(ref _m) => panic!(),
+    hir::TypeQualifierSpec::Invariant => { state.write("invariant"); }
     hir::TypeQualifierSpec::Precise => { state.write("precise"); }
   }
 }
@@ -1588,7 +1586,7 @@ pub fn show_hir_expr_inner(state: &OutputState, expr: &hir::Expr, top_level: boo
                 }
                 show_sym(state, name)
             }
-            hir::SymDecl::UserFunction(ref fd, ref run_class) => {
+            hir::SymDecl::UserFunction(ref fd, ref _run_class) => {
               if (state.mask.is_some() || state.return_declared) && !fd.globals.is_empty() {
                 cond_mask |= 1 << 31;
               }
@@ -1639,7 +1637,6 @@ pub fn show_hir_expr_inner(state: &OutputState, expr: &hir::Expr, top_level: boo
             }
           }
         }
-        _ => {}
       }
 
       if array_constructor {
@@ -1930,9 +1927,10 @@ pub fn show_declaration(state: &mut OutputState, d: &hir::Declaration) {
         state.write(";\n");
       }
     }
-    hir::Declaration::Block(ref block) => {
-      show_block(state, &block);
-      state.write(";\n");
+    hir::Declaration::Block(ref _block) => {
+      panic!();
+      //show_block(state, &block);
+      //state.write(";\n");
     }
     hir::Declaration::Global(ref qual, ref identifiers) => {
       show_type_qualifier(state, &qual);
@@ -2126,7 +2124,7 @@ pub fn show_single_declaration_cxx(state: &mut OutputState, d: &hir::SingleDecla
   }
   let is_scalar = state.is_scalar.replace(symbol_run_class(&sym.decl, state.vector_mask) == hir::RunClass::Scalar);
 
-  if let Some(ref array) = d.ty.array_sizes {
+  if let Some(ref _array) = d.ty.array_sizes {
     show_type(state, &d.ty);
   } else {
     if let Some(ty_def) = d.ty_def {
@@ -2177,6 +2175,7 @@ pub fn show_initializer(state: &OutputState, i: &hir::Initializer) {
   }
 }
 
+/*
 pub fn show_block(state: &mut OutputState, b: &hir::Block) {
   show_type_qualifier(state, &b.qualifier);
   state.write(" ");
@@ -2184,15 +2183,16 @@ pub fn show_block(state: &mut OutputState, b: &hir::Block) {
   state.write(" {");
 
   for field in &b.fields {
-    panic!();//show_struct_field(state, field);
+    show_struct_field(state, field);
     state.write("\n");
   }
   state.write("}");
 
   if let Some(ref ident) = b.identifier {
-    panic!();//show_arrayed_identifier(state, ident);
+    show_arrayed_identifier(state, ident);
   }
 }
+*/
 
 // This is a hack to run through the first time with an empty writter to find if 'return' is declared.
 pub fn has_conditional_return(state: &mut OutputState, cst: &hir::CompoundStatement) -> bool {
@@ -2225,7 +2225,7 @@ fn define_texel_fetch_ptr(state: &OutputState, base_sym: &hir::Symbol, sampler_s
          offsets.min_y, offsets.max_y);
 }
 
-pub fn show_function_definition(state: &mut OutputState, fd: &hir::FunctionDefinition, vector_mask: u32, run_class: hir::RunClass) {
+pub fn show_function_definition(state: &mut OutputState, fd: &hir::FunctionDefinition, vector_mask: u32) {
 //  println!("start {:?} {:?}", fd.prototype.name, vector_mask);
   if state.output_cxx && fd.prototype.name.as_str() == "main" {
     state.write("ALWAYS_INLINE ");
@@ -2344,7 +2344,7 @@ pub fn show_simple_statement(state: &mut OutputState, sst: &hir::SimpleStatement
 }
 
 pub fn show_indent(state: &OutputState) {
-  for i in 0..state.indent {
+  for _ in 0..state.indent {
     state.write(" ");
   }
 }
@@ -2397,7 +2397,6 @@ pub fn show_selection_statement(state: &mut OutputState, sst: &hir::SelectionSta
     state.mask = previous;
 
     if let Some(rest) = &sst.else_stmt {
-      let previous = state.mask.clone();
       // invert the condition
       let inverted_cond =
           Box::new(hir::Expr {
@@ -3035,7 +3034,7 @@ pub fn show_external_declaration(state: &mut OutputState, ed: &hir::ExternalDecl
       if !state.output_cxx { show_preprocessor(state, pp) }
     }
     hir::ExternalDeclaration::FunctionDefinition(ref fd) => {
-      if !state.output_cxx { show_function_definition(state, fd, !0, hir::RunClass::Unknown) }
+      if !state.output_cxx { show_function_definition(state, fd, !0) }
     }
     hir::ExternalDeclaration::Declaration(ref d) => show_declaration(state, d)
   }
@@ -3058,7 +3057,7 @@ pub fn show_cxx_function_definition(state: &mut OutputState, name: hir::SymRef, 
       None => {
         state.functions.insert((name, vector_mask), false);
         let buffer = state.push_buffer();
-        show_function_definition(state, fd, vector_mask, run_class);
+        show_function_definition(state, fd, vector_mask);
         for (name, vector_mask) in state.deps.replace(Vec::new()) {
             show_cxx_function_definition(state, name, vector_mask);
         }
@@ -3156,7 +3155,7 @@ pub fn define_global_consts(state: &mut OutputState, tu: &hir::TranslationUnit, 
         match &sym.decl {
           hir::SymDecl::Global(hir::StorageClass::Const, ..) => {
             let is_scalar = state.is_scalar.replace(symbol_run_class(&sym.decl, state.vector_mask) == hir::RunClass::Scalar);
-            if let Some(ref array) = d.head.ty.array_sizes {
+            if let Some(ref _array) = d.head.ty.array_sizes {
               show_type(state, &d.head.ty);
             } else {
               if let Some(ty_def) = d.head.ty_def {

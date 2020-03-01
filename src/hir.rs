@@ -1036,22 +1036,22 @@ pub struct TypeQualifier {
     pub qualifiers: NonEmpty<TypeQualifierSpec>
 }
 
-fn lift_type_qualifier_for_declaration(state: &mut State, q: &Option<syntax::TypeQualifier>) -> Option<TypeQualifier> {
+fn lift_type_qualifier_for_declaration(_state: &mut State, q: &Option<syntax::TypeQualifier>) -> Option<TypeQualifier> {
     q.as_ref().and_then(|x| {
         NonEmpty::from_non_empty_iter(x.qualifiers.0.iter().flat_map(|x| {
             match x {
                 syntax::TypeQualifierSpec::Precision(_) => None,
-                syntax::TypeQualifierSpec::Interpolation(i) => None,
+                syntax::TypeQualifierSpec::Interpolation(_) => None,
                 syntax::TypeQualifierSpec::Invariant => Some(TypeQualifierSpec::Invariant),
                 syntax::TypeQualifierSpec::Layout(l) => Some(TypeQualifierSpec::Layout(l.clone())),
                 syntax::TypeQualifierSpec::Precise => Some(TypeQualifierSpec::Precise),
-                syntax::TypeQualifierSpec::Storage(s) => None,
+                syntax::TypeQualifierSpec::Storage(_) => None,
             }
         })).map(|x| TypeQualifier{ qualifiers: x})
     })
 }
 
-fn lift_type_qualifier_for_parameter(state: &mut State, q: &Option<syntax::TypeQualifier>) -> Option<ParameterQualifier> {
+fn lift_type_qualifier_for_parameter(_state: &mut State, q: &Option<syntax::TypeQualifier>) -> Option<ParameterQualifier> {
     let mut qp: Option<ParameterQualifier> = None;
     if let Some(q) = q {
         for x in &q.qualifiers.0 {
@@ -1663,7 +1663,7 @@ fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorL
                 };
                 SymDecl::Global(storage, interpolation, ty.clone(), run_class)
             };
-            (state.declare(d.head.name.as_ref().unwrap().as_str(), decl.clone()), decl)
+            (state.declare(name.as_str(), decl.clone()), decl)
         }
         None => panic!()
     };
@@ -1677,7 +1677,7 @@ fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorL
     };
 
     let tail = d.tail.iter().map(|d| {
-        if let Some(array) = &d.ident.array_spec {
+        if let Some(_array) = &d.ident.array_spec {
             panic!("unhandled array")
         }
         state.declare(d.ident.ident.as_str(), decl.clone());
@@ -1694,7 +1694,7 @@ fn translate_variable_declaration(state: &mut State, d: &syntax::InitDeclaratorL
 
 fn translate_init_declarator_list(state: &mut State, l: &syntax::InitDeclaratorList, default_run_class: RunClass) -> Declaration {
     match &l.head.name {
-        Some(name) => {
+        Some(_name) => {
             translate_variable_declaration(state, l, default_run_class)
         }
         None => {
@@ -1706,12 +1706,13 @@ fn translate_init_declarator_list(state: &mut State, l: &syntax::InitDeclaratorL
 
 fn translate_declaration(state: &mut State, d: &syntax::Declaration, default_run_class: RunClass) -> Declaration {
     match d {
-        syntax::Declaration::Block(_) => Declaration::Block(panic!()),
+        syntax::Declaration::Block(_) => panic!(),//Declaration::Block(..),
         syntax::Declaration::FunctionPrototype(p) => Declaration::FunctionPrototype(translate_function_prototype(state, p)),
-        syntax::Declaration::Global(ty, ids) => {
+        syntax::Declaration::Global(_ty, _ids) => {
+            panic!();
             // glsl non-es supports requalifying variables
             // we don't right now
-            Declaration::Global(panic!(), panic!())
+            //Declaration::Global(..)
         },
         syntax::Declaration::InitDeclaratorList(dl) => translate_init_declarator_list(state, dl, default_run_class),
         syntax::Declaration::Precision(p, ts) => Declaration::Precision(p.clone(), ts.clone()),
